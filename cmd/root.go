@@ -128,6 +128,7 @@ func commandPreflight(cmd *cobra.Command, args []string) error {
 	if err := setupGlobalContext(cmd); err != nil {
 		return err
 	}
+	printMigrationNotice(cmd)
 	return nil
 }
 

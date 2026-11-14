@@ -7,7 +7,7 @@ description: "Scaffold or re-initialize a Windsor context."
 windsor init [context] [flags]
 ```
 
-Scaffold a Windsor project. Writes windsor.yaml at the project root if missing, creates contexts/<context>/, and adds the current directory to the trusted-folders list. Re-running on an existing context updates configuration; pass --reset to overwrite generated files and clean .terraform.
+Scaffold a Windsor project. Stops before writing anything when the project holds v1alpha1 files; run 'windsor migrate' first. Writes windsor.yaml at the project root if missing, creates contexts/<context>/, and adds the current directory to the trusted-folders list. Re-running on an existing context updates configuration; pass --reset to overwrite generated files and clean .terraform.
 
 If no context is given, the current context is used; if none is set, 'local' is used.
 

@@ -27,9 +27,7 @@ import (
 // Test Setup
 // =============================================================================
 
-const minimalWindsorYAML = `version: v1alpha1
-contexts:
-  local: {}
+const minimalWindsorYAML = `version: v1alpha2
 `
 
 // =============================================================================

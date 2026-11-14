@@ -120,3 +120,13 @@ func orderedValues(values map[string]any, order *keyOrder) yaml.MapSlice {
 	}
 	return ordered
 }
+
+// =============================================================================
+// Public Functions
+// =============================================================================
+
+// MarshalValues encodes context values as YAML with the keys in header order at every level.
+// The other keys follow the header keys in alphabetical order.
+func MarshalValues(values map[string]any) ([]byte, error) {
+	return yaml.Marshal(orderedValues(values, headerOrder()))
+}
