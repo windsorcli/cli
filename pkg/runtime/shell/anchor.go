@@ -64,7 +64,7 @@ func EnsureProjectAnchor() (string, error) {
 		}
 		dir = parent
 	}
-	if err := os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644); err != nil { // #nosec G306
+	if err := os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha2\n"), 0644); err != nil { // #nosec G306
 		return "", err
 	}
 	return cwd, nil

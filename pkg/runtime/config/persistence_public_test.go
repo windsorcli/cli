@@ -33,7 +33,7 @@ func TestSaveConfig(t *testing.T) {
 		if got := f.readYAML(t, "contexts/prod/values.yaml"); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected %v, got %v", want, got)
 		}
-		if got := f.read(t, "windsor.yaml"); got != "version: v1alpha1\n" {
+		if got := f.read(t, "windsor.yaml"); got != "version: v1alpha2\n" {
 			t.Errorf("unexpected root file %q", got)
 		}
 	})

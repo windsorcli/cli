@@ -381,6 +381,31 @@ func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
 	if _, err := os.Stat(globalProject); err == nil {
 		t.Errorf("init should anchor to cwd, but also created windsor.yaml in global home: %s", globalProject)
 	}
+
+	if got := readYAMLFile(t, cwdProject)["version"]; got != "v1alpha2" {
+		t.Errorf("expected the anchor to write version v1alpha2, got %v", got)
+	}
+}
+
+// TestInit_RejectsV1alpha2RootWithContextsKey verifies that a v1alpha2 root file with a
+// contexts key fails the load, and that the error names the file, the key, and `windsor migrate`.
+func TestInit_RejectsV1alpha2RootWithContextsKey(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "windsor.yaml"), []byte("version: v1alpha2\ncontexts:\n  local: {}\n"), 0644); err != nil {
+		t.Fatalf("write root: %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err == nil {
+		t.Fatal("expected failure for a contexts key in a v1alpha2 root file, got success")
+	}
+	for _, want := range []string{"windsor.yaml", "contexts", "windsor migrate"} {
+		if !strings.Contains(string(stderr), want) {
+			t.Errorf("expected stderr to mention %q, got: %s", want, stderr)
+		}
+	}
 }
 
 // TestInit_RejectsNonGitDirectory verifies that running `windsor init` outside
