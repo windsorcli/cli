@@ -10,6 +10,8 @@ package cmd_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,11 +27,11 @@ import (
 	"github.com/windsorcli/cli/pkg/workstation/network"
 )
 
-const windsorYAMLNoWorkstation = `version: v1alpha1
-contexts:
-  local:
-    workstation:
-      enabled: false
+const windsorYAMLNoWorkstation = `version: v1alpha2
+`
+
+const valuesYAMLNoWorkstation = `workstation:
+  enabled: false
 `
 
 // configureTestEnv holds the context, project, and shell capture from setupConfigureTest.
@@ -142,6 +144,12 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 
 	t.Run("ConfigureNetworkSucceedsWhenWorkstationNotEnabled", func(t *testing.T) {
 		projectRoot := SetupIntegrationProject(t, windsorYAMLNoWorkstation)
+		if err := os.MkdirAll(filepath.Join(projectRoot, "contexts", "local"), 0755); err != nil {
+			t.Fatalf("mkdir context: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(projectRoot, "contexts", "local", "values.yaml"), []byte(valuesYAMLNoWorkstation), 0600); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
 		runInitWithMocks(t, projectRoot)
 		m := shell.NewMockShell()
 		m.GetProjectRootFunc = func() (string, error) { return projectRoot, nil }
