@@ -34,9 +34,8 @@ var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml",
 // =============================================================================
 
 // TagScope lists the paths of one source that a composed blueprint uses.
-// A zero Layout means ArchiveLayout.
 type TagScope struct {
-	Layout         Layout
+	Base           string
 	Kustomizations []KustomizationScope
 	Terraform      []TerraformScope
 }
@@ -96,12 +95,8 @@ type scopedScan struct {
 // unless an entry reaches it. A name that holds an expression widens the scan and gives a note. A
 // path that the source does not hold gives a note.
 func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error) {
-	layout := scope.Layout
-	if layout == (Layout{}) {
-		layout = ArchiveLayout
-	}
-	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: layout.Kustomize}
-	for _, dir := range layout.WholeDirs() {
+	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: path.Join(scope.Base, archiveKustomizeDir)}
+	for _, dir := range wholeDirs(scope.Base) {
 		if err := scan.addTree(dir, noBoundary); err != nil {
 			return nil, nil, err
 		}

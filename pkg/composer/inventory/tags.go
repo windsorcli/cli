@@ -26,10 +26,10 @@ import (
 // sourceRoot is a directory that holds the files of one blueprint source.
 // scope lists the paths of the source that the composed blueprint uses.
 type sourceRoot struct {
-	name   string
-	dir    string
-	layout artifact.Layout
-	scope  artifact.TagScope
+	name  string
+	dir   string
+	base  string
+	scope artifact.TagScope
 }
 
 // =============================================================================
@@ -73,8 +73,8 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 // oci:// source. The local template source is the project itself. A source that is not oci://, or
 // whose cache directory is missing, gives a note.
 func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sourceRoot, []string, error) {
-	layout := artifact.ProjectLayout(l.runtime.ProjectPaths())
-	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.ProjectRoot, layout: layout, scope: artifact.TagScope{Layout: layout}}}
+	base := artifact.ProjectBase(l.runtime.ProjectPaths())
+	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.ProjectRoot, base: base, scope: artifact.TagScope{Base: base}}}
 	var notes []string
 	for _, source := range blueprint.Sources {
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {
@@ -109,11 +109,7 @@ func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sour
 // tags of the scope of root when all is false.
 func scanRoot(root sourceRoot, all bool) ([]artifact.ArtifactTag, []string, error) {
 	if all {
-		layout := root.layout
-		if layout == (artifact.Layout{}) {
-			layout = artifact.ArchiveLayout
-		}
-		tags, err := artifact.ScanTagsDirIn(root.dir, layout)
+		tags, err := artifact.ScanTagsDirIn(root.dir, root.base)
 		return tags, nil, err
 	}
 	return artifact.ScanTagsScoped(root.dir, root.scope)
@@ -178,7 +174,7 @@ func addScopes(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot, resol
 		if root != nil {
 			terraformDir := terraformRoot(blueprint, t.Source)
 			if root == &roots[0] {
-				terraformDir = root.layout.Terraform
+				terraformDir = artifact.TerraformDir(root.base)
 			}
 			root.scope.Terraform = append(root.scope.Terraform, artifact.TerraformScope{Name: t.GetID(), Root: terraformDir, Path: strings.ReplaceAll(t.Path, "\\", "/")})
 		}
@@ -214,7 +210,7 @@ func terraformRoot(blueprint *blueprintv1alpha1.Blueprint, source string) string
 			return declared.PathPrefix
 		}
 	}
-	return artifact.ArchiveLayout.Terraform
+	return artifact.TerraformDir("")
 }
 
 // tagEntry converts an artifact tag to an Entry. An image reference is normalized like any other

@@ -102,8 +102,8 @@ func TestScanTagsDirIn(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// When the project layout scans the root
-		tags, err := ScanTagsDirIn(root, ProjectLayout(resolver))
+		// When the project base scans the root
+		tags, err := ScanTagsDirIn(root, ProjectBase(resolver))
 
 		// Then the tag is found with a root-relative file path
 		if err != nil || len(tags) != 1 || tags[0].File != "infra/kustomize/app/values.yaml" {
@@ -116,7 +116,7 @@ func TestScanTagsDirIn(t *testing.T) {
 		root := t.TempDir()
 		writeTree(t, root, map[string]string{"infra/kustomize/app/values.yaml": tag})
 
-		// When the archive layout scans the root
+		// When an empty base scans the root
 		tags, err := ScanTagsDir(root)
 
 		// Then it finds nothing, because a consumed source has the standard layout
@@ -139,7 +139,7 @@ func TestScanTagsScoped_ProjectLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		scope := TagScope{
-			Layout:         ProjectLayout(resolver),
+			Base:           ProjectBase(resolver),
 			Kustomizations: []KustomizationScope{{Name: "app", Dir: resolver.RebaseKustomize("kustomize/app")}},
 		}
 

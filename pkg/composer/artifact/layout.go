@@ -1,11 +1,15 @@
-// The Layout names the source directories of a tree that the artifact code reads or writes.
-// It provides ArchiveLayout, the fixed layout of a bundle, and ProjectLayout, the layout of a project.
-// A bundle always uses ArchiveLayout, so every consumer of an artifact reads one layout.
-// A project uses the directories that its root file configures.
+// The layout file names the source directories of a tree that the artifact code reads or writes.
+// It provides the fixed bundle names, ProjectBase, and the scan roots for a base directory.
+// A bundle and every consumed source have an empty base. A project has the base of its root file.
+// Every directory name is joined with the base, so one prefix describes both layouts.
 
 package artifact
 
-import "github.com/windsorcli/cli/pkg/runtime/paths"
+import (
+	"path"
+
+	"github.com/windsorcli/cli/pkg/runtime/paths"
+)
 
 // =============================================================================
 // Constants
@@ -19,66 +23,45 @@ const (
 )
 
 // =============================================================================
-// Types
-// =============================================================================
-
-// Layout holds the source directories of a tree. Each is relative to the tree root with forward slashes.
-// An empty field means the tree has no such directory.
-type Layout struct {
-	Kustomize string
-	Terraform string
-	Contexts  string
-	Template  string
-}
-
-// ArchiveLayout is the fixed layout of a bundle and of every source that a project consumes.
-var ArchiveLayout = Layout{
-	Kustomize: archiveKustomizeDir,
-	Terraform: archiveTerraformDir,
-	Contexts:  archiveContextsDir,
-	Template:  archiveTemplateDir,
-}
-
-// =============================================================================
-// Constructor
-// =============================================================================
-
-// ProjectLayout returns the layout of the project that resolver describes. It has no Template entry,
-// because the template directory sits inside the contexts directory.
-func ProjectLayout(resolver *paths.Resolver) Layout {
-	return Layout{
-		Kustomize: resolver.RelSlash(resolver.Kustomize()),
-		Terraform: resolver.RelSlash(resolver.Terraform()),
-		Contexts:  resolver.RelSlash(resolver.Contexts()),
-	}
-}
-
-// =============================================================================
 // Public Methods
 // =============================================================================
 
-// Roots returns the directories that the tag scan reads, in a fixed order. It skips an empty entry.
-func (l Layout) Roots() []string {
-	var roots []string
-	for _, dir := range []string{l.Kustomize, l.Terraform, l.Contexts, l.Template} {
-		if dir != "" {
-			roots = append(roots, dir)
-		}
+// ProjectBase returns the base directory of the project that resolver describes, relative to the
+// project root with forward slashes. It is empty when the base is the project root.
+func ProjectBase(resolver *paths.Resolver) string {
+	rel := resolver.RelSlash(resolver.Base())
+	if rel == "." {
+		return ""
 	}
-	return roots
+	return rel
 }
 
-// WholeDirs returns the directories that the scoped scan always reads in full. The kustomize/crds
-// directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
-func (l Layout) WholeDirs() []string {
-	var dirs []string
-	for _, dir := range []string{l.Contexts, l.Template} {
-		if dir != "" {
-			dirs = append(dirs, dir)
-		}
+// TerraformDir returns the terraform directory under base, relative to the tree root.
+func TerraformDir(base string) string {
+	return path.Join(base, archiveTerraformDir)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// scanRoots returns the directories under base that the tag scan reads. The contexts directory holds
+// the facets and values files of a project. The _template directory holds them in a bundled source.
+func scanRoots(base string) []string {
+	return []string{
+		path.Join(base, archiveKustomizeDir),
+		path.Join(base, archiveTerraformDir),
+		path.Join(base, archiveContextsDir),
+		path.Join(base, archiveTemplateDir),
 	}
-	if l.Kustomize != "" {
-		dirs = append(dirs, l.Kustomize+"/crds")
+}
+
+// wholeDirs returns the directories under base that the scoped scan always reads in full. The
+// kustomize/crds directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
+func wholeDirs(base string) []string {
+	return []string{
+		path.Join(base, archiveContextsDir),
+		path.Join(base, archiveTemplateDir),
+		path.Join(base, archiveKustomizeDir, "crds"),
 	}
-	return dirs
 }

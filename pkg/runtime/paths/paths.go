@@ -55,9 +55,6 @@ type Shims struct {
 type Resolver struct {
 	projectRoot string
 	base        string
-	terraform   string
-	kustomize   string
-	contexts    string
 }
 
 // =============================================================================
@@ -87,9 +84,6 @@ func New(projectRoot string, p *v1alpha2.Paths, s *Shims) (*Resolver, error) {
 	base := filepath.FromSlash(p.Base)
 	r := &Resolver{projectRoot: projectRoot}
 	r.base = filepath.Join(projectRoot, base)
-	r.terraform = filepath.Join(r.base, TerraformDirName)
-	r.kustomize = filepath.Join(r.base, KustomizeDirName)
-	r.contexts = filepath.Join(r.base, ContextsDirName)
 	if s != nil && s.EvalSymlinks != nil {
 		if err := checkSymlinks(r, s); err != nil {
 			return nil, err
@@ -138,19 +132,19 @@ func (r *Resolver) ProjectRoot() string { return r.projectRoot }
 func (r *Resolver) Base() string { return r.base }
 
 // Terraform returns the terraform source directory.
-func (r *Resolver) Terraform() string { return r.terraform }
+func (r *Resolver) Terraform() string { return filepath.Join(r.base, TerraformDirName) }
 
 // Kustomize returns the kustomize source directory.
-func (r *Resolver) Kustomize() string { return r.kustomize }
+func (r *Resolver) Kustomize() string { return filepath.Join(r.base, KustomizeDirName) }
 
 // Contexts returns the contexts directory.
-func (r *Resolver) Contexts() string { return r.contexts }
+func (r *Resolver) Contexts() string { return filepath.Join(r.base, ContextsDirName) }
 
 // ContextDir returns the directory of the context called name.
-func (r *Resolver) ContextDir(name string) string { return filepath.Join(r.contexts, name) }
+func (r *Resolver) ContextDir(name string) string { return filepath.Join(r.Contexts(), name) }
 
 // TemplateDir returns the template directory.
-func (r *Resolver) TemplateDir() string { return filepath.Join(r.contexts, TemplateDirName) }
+func (r *Resolver) TemplateDir() string { return filepath.Join(r.Contexts(), TemplateDirName) }
 
 // RelSlash returns abs relative to the project root, with forward slashes. It returns abs
 // unchanged when abs is outside the project root.
@@ -170,11 +164,11 @@ func (r *Resolver) RebaseKustomize(path string) string {
 	if path != KustomizeDirName && !strings.HasPrefix(path, KustomizeDirName+"/") {
 		return path
 	}
-	return r.RelSlash(r.kustomize) + strings.TrimPrefix(path, KustomizeDirName)
+	return r.RelSlash(r.Kustomize()) + strings.TrimPrefix(path, KustomizeDirName)
 }
 
 // IsUnderTerraform reports whether p is the terraform directory or inside it.
-func (r *Resolver) IsUnderTerraform(p string) bool { return within(r.terraform, p) }
+func (r *Resolver) IsUnderTerraform(p string) bool { return within(r.Terraform(), p) }
 
 // IsUnderTemplate reports whether p is the template directory or inside it.
 func (r *Resolver) IsUnderTemplate(p string) bool { return within(r.TemplateDir(), p) }
