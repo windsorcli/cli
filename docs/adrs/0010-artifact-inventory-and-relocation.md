@@ -308,6 +308,19 @@ When the context has a mirror for the host of an `oci://` source, the CLI pulls 
   upstream URL. Thus `windsor show artifacts` still names the source to copy from.
 - A digest stays valid, because Flux Mirror copies the artifact byte for byte.
 
+The tag lookups that choose a blueprint version read the same mirror:
+
+- `windsor init` and `windsor upgrade` list the tags of a source, read the `cliVersion` annotation
+  of each tag, and pull a tag that has no annotation. All three go to the mirror, and an `http://`
+  mirror uses an insecure connection. `windsor init` and `windsor upgrade` write the upstream URL
+  of the tag that they choose, not the mirror URL.
+- The mirror holds only the tags that `-o flux-mirror` copied, which is the pinned tag of each
+  source. A site finds a newer tag only after it copies that tag into the mirror.
+- When the lookup of `windsor init` fails, `windsor init` uses the pinned version and writes a
+  debug log line, which shows under `--verbose`. It gives no warning, because a site whose mirror
+  holds only the pinned tag would see the warning on every run. `windsor upgrade` fails with the
+  lookup error.
+
 A `registries` entry with `endpoint` turns the redirect on for its host, for images and
 blueprint sources together. An entry with no `endpoint` turns it off. A workstation registry proxy
 sets no `endpoint`, so it does not change a pull.

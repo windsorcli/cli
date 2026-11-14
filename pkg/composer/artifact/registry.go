@@ -98,13 +98,18 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 
 // ListTags returns the tags of the repository of an OCI reference. It ignores the tag in ociRef.
 // The upgrade of a source uses it to find the latest version.
+// When the context has a mirror for the registry, it lists the tags of the mirror. A mirror holds only the tags that were copied to it.
 // It returns an error if the reference is not valid or the registry is not available.
 func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 	registry, repository, _, err := a.ParseOCIRef(ociRef)
 	if err != nil {
 		return nil, err
 	}
-	repo, err := a.shims.NewRepository(registry + "/" + repository)
+	location, opts, err := a.mirrorReference(registry + "/" + repository)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := a.shims.NewRepository(location, opts...)
 	if err != nil {
 		return nil, werror.Wrap(err, "invalid repository %q/%q", registry, repository)
 	}
@@ -117,6 +122,7 @@ func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 
 // GetCliVersionConstraint returns the cliVersion constraint of ociRef from the manifest annotation.
 // It reads only the manifest and does not pull the layer. An empty string means the artifact sets no constraint.
+// When the context has a mirror for the registry, it reads the manifest from the mirror.
 // If the registry rejects the keychain credentials, it tries again without credentials.
 func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error) {
 	registry, repository, tag, err := a.ParseOCIRef(ociRef)
@@ -124,8 +130,11 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 		return "", err
 	}
 
-	ref := FormatOCIRef(registry, repository, tag)
-	parsedRef, err := a.shims.ParseReference(ref)
+	ref, opts, err := a.pullReference(registry, repository, tag)
+	if err != nil {
+		return "", err
+	}
+	parsedRef, err := a.shims.ParseReference(ref, opts...)
 	if err != nil {
 		return "", werror.Wrap(err, "failed to parse reference %s", ref)
 	}
@@ -150,6 +159,7 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 
 // VerifyCliVersionCompatibility pulls ociRef and checks the cliVersion constraint in its metadata.yaml.
 // ResolveCompatibleTag uses it when the manifest of a tag has no constraint annotation.
+// The pull reads the mirror of the registry, as Pull does.
 // It returns nil if the running CLI satisfies the constraint or the artifact has no metadata.yaml.
 // Any other error means that the tag is not safe to use.
 func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
@@ -417,7 +427,13 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 // When the context has a mirror for registry, the reference is on the mirror, and an http mirror adds name.Insecure.
 // The cache key of the artifact keeps the upstream reference.
 func (a *ArtifactBuilder) pullReference(registry, repository, tag string) (string, []name.Option, error) {
-	ref := FormatOCIRef(registry, repository, tag)
+	return a.mirrorReference(FormatOCIRef(registry, repository, tag))
+}
+
+// mirrorReference returns ref, or its mirror reference when the context has a mirror for the host of ref.
+// ref has no oci:// prefix and no tag or a tag. An http mirror adds name.Insecure to the options.
+// The tag lookups and the pull use it, so they all read the same registry.
+func (a *ArtifactBuilder) mirrorReference(ref string) (string, []name.Option, error) {
 	if a.runtime == nil || a.runtime.ConfigHandler == nil {
 		return ref, nil, nil
 	}

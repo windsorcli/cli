@@ -84,7 +84,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return werror.Wrap(err, "invalid configuration")
 		}
 
-		blueprintURL, err := resolveBlueprintURL(upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, false, proj.Composer.ArtifactBuilder)
+		blueprintURL, err := resolveBlueprintURL(cmd.Context(), upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, false, proj.Composer.ArtifactBuilder)
 		if err != nil {
 			return err
 		}
