@@ -195,6 +195,60 @@ func TestPaths_ShowArtifactsFindsTagsUnderBase(t *testing.T) {
 	}
 }
 
+func TestPaths_FacetFileHelperReadsRelativeToTheFacetUnderBase(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	facets := filepath.Join(dir, "infra", "contexts", "_template", "facets")
+	if err := os.MkdirAll(facets, 0755); err != nil {
+		t.Fatal(err)
+	}
+	facet := "kind: Facet\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: files\nterraform:\n  - path: \"null\"\n    inputs:\n      content: ${file(\"data.txt\")}\n"
+	if err := os.WriteFile(filepath.Join(facets, "files.yaml"), []byte(facet), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(facets, "data.txt"), []byte("hello-from-base\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	if !strings.Contains(string(stdout), "hello-from-base") {
+		t.Errorf("expected the file content in the blueprint, got:\n%s", stdout)
+	}
+}
+
+func TestPaths_WindsorTestRunsTheTemplateTestsUnderBase(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "facet-requires")
+	if err := os.MkdirAll(filepath.Join(dir, "infra"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "contexts"), filepath.Join(dir, "infra", "contexts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "windsor.yaml"), []byte("version: v1alpha2\npaths:\n  base: infra\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("init: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=ok")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	if out := string(stdout) + string(stderr); !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
 func TestPaths_RejectsAnInvalidPathsBlock(t *testing.T) {
 	cases := map[string]string{
 		"AbsolutePath":      "paths:\n  base: /abs\n",
