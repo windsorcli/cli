@@ -8,6 +8,8 @@ package config
 import (
 	"crypto/rand"
 
+	"github.com/goccy/go-yaml"
+
 	"github.com/windsorcli/cli/internal/shims"
 )
 
@@ -15,10 +17,11 @@ import (
 // Types
 // =============================================================================
 
-// Shims holds the shared system call primitives and the config-specific random byte source.
+// Shims holds the shared system call primitives, the strict YAML decoder, and the random byte source.
 type Shims struct {
 	shims.Shims
-	CryptoRandRead func([]byte) (int, error)
+	YamlUnmarshalStrict func(data []byte, v any) error
+	CryptoRandRead      func([]byte) (int, error)
 }
 
 // =============================================================================
@@ -28,7 +31,10 @@ type Shims struct {
 // NewShims returns a Shims with every field set to its standard library implementation.
 func NewShims() *Shims {
 	return &Shims{
-		Shims:          *shims.NewShims(),
+		Shims: *shims.NewShims(),
+		YamlUnmarshalStrict: func(data []byte, v any) error {
+			return yaml.UnmarshalWithOptions(data, v, yaml.Strict())
+		},
 		CryptoRandRead: rand.Read,
 	}
 }

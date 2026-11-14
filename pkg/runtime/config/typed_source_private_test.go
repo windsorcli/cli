@@ -117,6 +117,13 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		}
 	})
 
+	t.Run("LoadsANumericEnvironmentValueAsAString", func(t *testing.T) {
+		_, found, err := load(t, map[string]string{"windsor.yaml": "version: v1alpha2\nenvironment:\n  PORT: 8080\n"})
+		if err != nil || !found {
+			t.Fatalf("Expected the root to load, got found=%v err=%v", found, err)
+		}
+	})
+
 	t.Run("LoadsFullV1alpha2Root", func(t *testing.T) {
 		_, found, err := load(t, map[string]string{
 			"windsor.yaml": "version: v1alpha2\nenvironment:\n  AWS_DEFAULT_REGION: us-east-2\npaths:\n  terraform: infra/terraform\n  kustomize: infra/kustomize\n  contexts: infra/contexts\n",
@@ -150,11 +157,10 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		{"TerraformKey", map[string]string{"windsor.yaml": "version: v1alpha2\nterraform:\n  driver: tofu\n"}, []string{"windsor.yaml", `"terraform"`, "windsor migrate"}},
 		{"UnsupportedVersion", map[string]string{"windsor.yaml": "version: v1alpha3\n"}, []string{"windsor.yaml", "v1alpha3", "windsor migrate"}},
 		{"NonStringVersion", map[string]string{"windsor.yaml": "version: 2\n"}, []string{"windsor.yaml", "2", "windsor migrate"}},
-		{"EnvironmentNotAMap", map[string]string{"windsor.yaml": "version: v1alpha2\nenvironment: [a]\n"}, []string{"windsor.yaml", `"environment"`}},
-		{"EnvironmentValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\nenvironment:\n  PORT: 8080\n"}, []string{"windsor.yaml", `"environment.PORT"`}},
-		{"PathsNotAnObject", map[string]string{"windsor.yaml": "version: v1alpha2\npaths: infra\n"}, []string{"windsor.yaml", `"paths"`}},
+		{"EnvironmentNotAMap", map[string]string{"windsor.yaml": "version: v1alpha2\nenvironment: [a]\n"}, []string{"windsor.yaml", "environment"}},
+		{"PathsNotAnObject", map[string]string{"windsor.yaml": "version: v1alpha2\npaths: infra\n"}, []string{"windsor.yaml", "paths"}},
 		{"PathsUnknownKey", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  state: x\n"}, []string{"windsor.yaml", `"state"`}},
-		{"PathsValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  terraform: [a]\n"}, []string{"windsor.yaml", `"paths.terraform"`}},
+		{"PathsValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  terraform: [a]\n"}, []string{"windsor.yaml", "terraform: [a]"}},
 		{"ContextWindsorYaml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yaml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yaml"), "windsor migrate"}},
 		{"ContextWindsorYml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yml"), "windsor migrate"}},
 	}

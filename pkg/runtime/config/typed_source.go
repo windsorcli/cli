@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"slices"
-	"sort"
-	"strings"
 
 	"github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
@@ -70,7 +67,7 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 	switch {
 	case !hasVersion || version == "v1alpha1":
 	case version == v1alpha2.Version:
-		if err := s.validateRoot(rootConfigPath, rootKeys); err != nil {
+		if err := s.validateRoot(rootConfigPath, fileData, rootKeys); err != nil {
 			return nil, false, err
 		}
 		if err := s.rejectContextFiles(rootConfigPath, projectRoot); err != nil {
@@ -148,41 +145,19 @@ func (s *typedSource) EnsureRoot(projectRoot string) error {
 // Private Methods
 // =============================================================================
 
-// validateRoot checks the keys and value types of a v1alpha2 root file. It fails on a contexts key,
-// on any key outside the root schema, and on a wrong type in environment or paths.
-func (s *typedSource) validateRoot(rootPath string, rootKeys map[string]any) error {
+// validateRoot decodes a v1alpha2 root file into the Root type. It fails on a contexts key, on any
+// key outside the root schema, and on a wrong type in environment or paths.
+func (s *typedSource) validateRoot(rootPath string, fileData []byte, rootKeys map[string]any) error {
 	if _, ok := rootKeys["contexts"]; ok {
 		return werror.New(
 			fmt.Sprintf("The v1alpha2 root file %s has the key %q. The root file cannot hold per-context values.", rootPath, "contexts"),
 			"Run 'windsor migrate' to move the values into contexts/<name>/values.yaml.", nil)
 	}
-	for _, key := range sortedKeys(rootKeys) {
-		if !slices.Contains(v1alpha2.RootKeys, key) {
-			return werror.New(
-				fmt.Sprintf("The v1alpha2 root file %s has the key %q. The root file allows only %s.", rootPath, key, strings.Join(v1alpha2.RootKeys, ", ")),
-				"Remove the key. Run 'windsor migrate' if it comes from a v1alpha1 project.", nil)
-		}
-	}
-	if env, ok := rootKeys["environment"]; ok {
-		if err := requireStringMap(rootPath, "environment", env); err != nil {
-			return err
-		}
-	}
-	if paths, ok := rootKeys["paths"]; ok {
-		pathMap, ok := paths.(map[string]any)
-		if !ok {
-			return typeError(rootPath, "paths", "an object")
-		}
-		for _, key := range sortedKeys(pathMap) {
-			if !slices.Contains(v1alpha2.PathKeys, key) {
-				return werror.New(
-					fmt.Sprintf("The root file %s has the key %q under paths. Paths allows only %s.", rootPath, key, strings.Join(v1alpha2.PathKeys, ", ")),
-					"Remove the key.", nil)
-			}
-			if _, ok := pathMap[key].(string); !ok {
-				return typeError(rootPath, "paths."+key, "a string")
-			}
-		}
+	var root v1alpha2.Root
+	if err := s.shims.YamlUnmarshalStrict(fileData, &root); err != nil {
+		return werror.New(
+			fmt.Sprintf("The v1alpha2 root file %s is invalid. The root file allows only version, environment, and paths.\n%s", rootPath, err),
+			"Fix the key or value. Run 'windsor migrate' if the key comes from a v1alpha1 project.", err)
 	}
 	return nil
 }
@@ -217,35 +192,6 @@ func (s *typedSource) rejectContextFiles(rootPath, projectRoot string) error {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-// sortedKeys returns the keys of m in ascending order.
-func sortedKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// requireStringMap fails unless value is a map whose values are all strings.
-func requireStringMap(rootPath, key string, value any) error {
-	m, ok := value.(map[string]any)
-	if !ok {
-		return typeError(rootPath, key, "a map of strings")
-	}
-	for _, name := range sortedKeys(m) {
-		if _, ok := m[name].(string); !ok {
-			return typeError(rootPath, key+"."+name, "a string")
-		}
-	}
-	return nil
-}
-
-// typeError returns the error for a root key that holds the wrong type.
-func typeError(rootPath, key, want string) error {
-	return werror.New(fmt.Sprintf("The key %q in the root file %s must be %s.", key, rootPath, want), "Fix the value.", nil)
-}
 
 // convertV1alpha1 converts merged v1alpha1 values into the v1alpha2 header in place. It moves
 // provider to platform when platform is empty, and removes provider.

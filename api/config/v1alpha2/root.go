@@ -1,5 +1,5 @@
 // The Root is the closed schema of the v1alpha2 root windsor.yaml.
-// It provides the three keys of the root file and the key lists the loader checks against.
+// It provides the three keys of the root file as typed fields, so a strict decode rejects any other key.
 // The root file holds project-wide settings and never per-context values.
 // Path rules and the path resolver live outside this package.
 
@@ -11,12 +11,6 @@ package v1alpha2
 
 // Version is the version value of a v1alpha2 root file.
 const Version = "v1alpha2"
-
-// RootKeys lists the keys the root file allows.
-var RootKeys = []string{"version", "environment", "paths"}
-
-// PathKeys lists the keys the paths object allows.
-var PathKeys = []string{"terraform", "kustomize", "contexts"}
 
 // =============================================================================
 // Types
