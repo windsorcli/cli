@@ -42,21 +42,27 @@ are never in the same sort, so the ordinal table cannot rank a source's
 facets against yours — they are evaluated in separate passes and only
 meet at the merge in step 3.
 
-## Removals across sources
+## Removals
 
-A kustomization or flux system entry with `strategy: remove` also applies
-to the sources that Windsor processes before its own source. Thus a facet
-can remove a component, a patch, a dependency, or an install-tier field
-that a source contributes.
+A terraform, kustomization, or flux system entry with `strategy: remove`
+deletes only the fields that it names. It never deletes a whole entry, so
+a remove that names no fields changes nothing.
+
+Inside one source, the ordinal decides:
+
+- A remove strips its fields from the facets with an equal or lower
+  ordinal, and from the blueprint.yaml of its source.
+- A merge with a higher ordinal can add a removed field back.
+
+A remove also applies to the sources that Windsor processes before its own
+source. Thus a facet can remove a kustomize component, a patch, a terraform
+input, a dependency, or an install-tier field that a source contributes.
 
 - Windsor processes the facets of the sources in dependency order. Sources
   with no dependency between them sort by name, and your own blueprint is
   last. This order can differ from the merge order in step 3.
-- A removal deletes only the fields that it names. The other fields stay.
-- A removal has no effect on a source that Windsor processes after its own
+- A remove has no effect on a source that Windsor processes after its own
   source.
-- Inside one source, the ordinal rules decide first. Only a removal that
-  wins in its own source applies to the other sources.
 
 ## Source depth
 

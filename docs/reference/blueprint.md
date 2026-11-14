@@ -48,7 +48,7 @@ shared across them.
 | `resources` | `array<object>` | Custom-resource tier variants, all sharing '<path>/resources'. |
 | `secrets` | `map<object>` | Kubernetes Secrets for this system, keyed by Secret name. Removing an entry prunes the corresponding cluster Secret on next apply; changing an entry's resolved data rolls workloads that reference it. |
 | `source` | `string` | Name of the source that provides the tier bases. |
-| `strategy` | `string` | How a system with this name merges across facets. Defaults to merge. One of: `merge`, `replace`, `remove`. |
+| `strategy` | `string` | How a system with this name merges across facets. Defaults to merge. 'remove' deletes only the named dependsOn entries, install fields, and resources variants, and never deletes the whole system. See [Composition order](composition-order.md#removals). One of: `merge`, `replace`, `remove`. |
 | `when` | `string` | Gates the system; combined (AND) with each resources variant's condition. |
 
 ### flux[].install

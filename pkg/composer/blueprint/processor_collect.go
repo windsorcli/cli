@@ -30,16 +30,18 @@ const (
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents collects the terraform components of a facet into terraformByID. It
+// collectTerraformComponents collects the terraform components of a facet into collected. It
 // evaluates the when condition, inputs, and source of each component, and merges entries by strategy.
-// A component with no when takes the facet condition. When facetScope is not nil, expressions can read
-// config block values. Evaluation errors return.
+// A remove component goes to addTerraformRemoval. A removal with an equal or higher ordinal strips its
+// fields from a merge or replace component. A component with no when takes the facet condition. When
+// facetScope is not nil, expressions can read config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	facet blueprintv1alpha1.Facet,
 	sourceName []string,
-	terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+	collected collectedComponents,
 	facetScope map[string]any,
 ) error {
+	terraformByID := collected.terraformByID
 	for _, tc := range facet.TerraformComponents {
 		componentWhen := tc.When
 		if componentWhen == "" && facet.When != "" {
@@ -142,6 +144,18 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			})
 		}
 
+		if strategy == "remove" {
+			if err := p.addTerraformRemoval(collected, componentID, processed, entryKey); err != nil {
+				return err
+			}
+			continue
+		}
+		stripped, err := stripTerraformComponent(processed.TerraformComponent, removalItems(collected.terraformRemovals[componentID], effectiveOrdinal))
+		if err != nil {
+			return werror.Wrap(err, "error removing fields from terraform component '%s'", componentID)
+		}
+		processed.TerraformComponent = stripped
+
 		previous := terraformByID[componentID]
 		if previous == nil {
 			processed.Strategy = strategy
@@ -182,11 +196,13 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 	}
 }
 
-// collectKustomizations collects the kustomizations of a facet into kustomizationByName. It evaluates
-// the when condition, substitutions, and source of each kustomization. Entries merge by ordinal, then
-// remove > replace > merge. A kustomization with no when takes the facet condition. When facetScope is
-// not nil, expressions can read config block values. Evaluation errors return.
-func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
+// collectKustomizations collects the kustomizations of a facet into collected. It evaluates the when
+// condition, substitutions, and source of each kustomization. Entries merge by ordinal, then replace >
+// merge. A remove entry goes to addKustomizationRemoval. A removal with an equal or higher ordinal
+// strips its fields from a merge or replace entry. A kustomization with no when takes the facet
+// condition. When facetScope is not nil, expressions can read config block values. Evaluation errors return.
+func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
+	kustomizationByName := collected.kustomizationByName
 	for _, k := range facet.Kustomizations {
 		componentWhen := k.When
 		if componentWhen == "" && facet.When != "" {
@@ -258,6 +274,15 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 
 		addEntry := func(entry blueprintv1alpha1.ConditionalKustomization) error {
+			entryKey := traceEntryKey(sn, "kustomize", entry.Name)
+			if strategy == "remove" {
+				return p.addKustomizationRemoval(collected, entry, entryKey)
+			}
+			stripped, err := stripKustomization(entry.Kustomization, removalItems(collected.kustomizationRemovals[entry.Name], effectiveOrdinal))
+			if err != nil {
+				return werror.Wrap(err, "error removing fields from kustomization '%s'", entry.Name)
+			}
+			entry.Kustomization = stripped
 			previous := kustomizationByName[entry.Name]
 			if previous == nil {
 				entry.Strategy = strategy
@@ -267,7 +292,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			} else if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
 				return err
 			}
-			settleEntryTrace(p, traceEntryKey(sn, "kustomize", entry.Name), previous, &entry, kustomizationByName[entry.Name])
+			settleEntryTrace(p, entryKey, previous, &entry, kustomizationByName[entry.Name])
 			return nil
 		}
 
@@ -433,13 +458,13 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
 }
 
-// collectFluxSystems evaluates a facet's flux: system descriptors and stores the result in
-// fluxSystemByName. It clears each system's when once inclusion is decided. Neither an install
-// tier nor a resources variant is dropped for an empty component list. Only a system's own
-// when controls whether it is included at all. A resources variant with no Timeout/Interval of
-// its own inherits both from the system's install tier; an explicit value on the variant always
-// wins.
-func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
+// collectFluxSystems evaluates a facet's flux: systems into collected. A remove system goes to
+// addFluxSystemRemoval, and an equal or higher-ordinal removal strips its fields from a merge system.
+// Only a system's own when controls its inclusion, and collect then clears the when. An empty
+// component list never drops an install tier or a resources variant. A resources variant with no
+// Timeout or Interval takes both from the install tier.
+func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
+	fluxSystemByName := collected.fluxSystemByName
 	for systemIndex, system := range facet.FluxSystems {
 		when := system.When
 		if when == "" && facet.When != "" {
@@ -540,6 +565,17 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		system.Strategy = strategy
 		system.When = ""
 
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		entryKey := traceEntryKey(sn, "flux", system.Name)
+		if strategy == "remove" {
+			p.addFluxSystemRemoval(collected, system, entryKey)
+			continue
+		}
+		system = stripFluxSystem(system, removalItems(collected.fluxSystemRemovals[system.Name], effectiveOrdinal))
+
 		previous := fluxSystemByName[system.Name]
 		if previous == nil {
 			stored := system
@@ -547,11 +583,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		} else if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
 			return err
 		}
-		sn := ""
-		if len(sourceName) > 0 {
-			sn = sourceName[0]
-		}
-		settleEntryTrace(p, traceEntryKey(sn, "flux", system.Name), previous, &system, fluxSystemByName[system.Name])
+		settleEntryTrace(p, entryKey, previous, &system, fluxSystemByName[system.Name])
 	}
 	return nil
 }

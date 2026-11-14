@@ -133,6 +133,29 @@ func TestLoadBlueprint_RemovalsAcrossSources(t *testing.T) {
 		}
 	})
 
+	t.Run("RemovesTerraformFieldsThatASourceContributes", func(t *testing.T) {
+		// Given a core terraform component with two inputs and two dependencies, and a template facet that removes one of each
+		f := newFixture(t)
+		f.withCoreSource(t)
+		f.publishCore(t, "", map[string]string{"cluster": "terraform:\n- path: network\n- path: dns\n- path: cluster\n  dependsOn: [network, dns]\n  inputs:\n    size: 3\n    debug: true\n"})
+		f.facet(t, "consumer", "terraform:\n- path: cluster\n  strategy: remove\n  dependsOn: [dns]\n  inputs:\n    debug: null\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the component keeps only the fields that the template facet does not remove
+		c := component(bp, "cluster")
+		if c == nil {
+			t.Fatal("expected terraform component cluster")
+		}
+		if _, ok := c.Inputs["debug"]; ok || c.Inputs["size"] == nil {
+			t.Errorf("expected inputs with size and without debug, got %v", c.Inputs)
+		}
+		if !slices.Equal(c.DependsOn, []string{"network"}) {
+			t.Errorf("expected dependsOn [network], got %v", c.DependsOn)
+		}
+	})
+
 	t.Run("IgnoresARemovalWhoseConditionIsFalse", func(t *testing.T) {
 		// Given a core facet that adds components a and b, and a template removal with a false condition
 		f := newFixture(t)
@@ -150,6 +173,88 @@ func TestLoadBlueprint_RemovalsAcrossSources(t *testing.T) {
 		}
 		if !slices.Equal(k.Components, []string{"a", "b"}) {
 			t.Errorf("expected components [a b], got %v", k.Components)
+		}
+	})
+}
+
+func TestLoadBlueprint_RemovalsInOneSource(t *testing.T) {
+	t.Run("RemovesComponentsThatALowerFacetAdds", func(t *testing.T) {
+		// Given a facet that adds components a and b, and a higher-ordinal facet that removes a
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "web", "ordinal: 100\nkustomize:\n- name: web\n  path: web\n  components: [a, b]\n")
+		f.facet(t, "web-trim", "ordinal: 200\nkustomize:\n- name: web\n  strategy: remove\n  components: [a]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the kustomization stays with only component b
+		k := kustomization(bp, "web")
+		if k == nil {
+			t.Fatal("expected kustomization web")
+		}
+		if !slices.Equal(k.Components, []string{"b"}) {
+			t.Errorf("expected components [b], got %v", k.Components)
+		}
+	})
+
+	t.Run("HigherMergeAddsARemovedComponentBack", func(t *testing.T) {
+		// Given a facet that removes component a, and a higher-ordinal facet that adds a and b
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "web-trim", "ordinal: 100\nkustomize:\n- name: web\n  strategy: remove\n  components: [a]\n")
+		f.facet(t, "web", "ordinal: 200\nkustomize:\n- name: web\n  path: web\n  components: [a, b]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the higher-ordinal facet wins and both components remain
+		k := kustomization(bp, "web")
+		if k == nil {
+			t.Fatal("expected kustomization web")
+		}
+		if !slices.Equal(k.Components, []string{"a", "b"}) {
+			t.Errorf("expected components [a b], got %v", k.Components)
+		}
+	})
+
+	t.Run("RemovesTerraformInputsThatALowerFacetAdds", func(t *testing.T) {
+		// Given a facet with two terraform inputs, and a higher-ordinal facet that removes one
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cluster", "ordinal: 100\nterraform:\n- path: cluster\n  inputs:\n    size: 3\n    debug: true\n")
+		f.facet(t, "cluster-trim", "ordinal: 200\nterraform:\n- path: cluster\n  strategy: remove\n  inputs:\n    debug: null\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the component stays with only the other input
+		c := component(bp, "cluster")
+		if c == nil {
+			t.Fatal("expected terraform component cluster")
+		}
+		if _, ok := c.Inputs["debug"]; ok || c.Inputs["size"] == nil {
+			t.Errorf("expected inputs with size and without debug, got %v", c.Inputs)
+		}
+	})
+
+	t.Run("RemovesFluxInstallComponentsThatALowerFacetAdds", func(t *testing.T) {
+		// Given a facet with two install components, and a higher-ordinal facet that removes one
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "gateway", "ordinal: 100\nflux:\n- name: gateway\n  install:\n    components: [envoy, debug]\n")
+		f.facet(t, "gateway-trim", "ordinal: 200\nflux:\n- name: gateway\n  strategy: remove\n  install:\n    components: [debug]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the install tier stays with only the other component
+		k := fluxTier(bp, "gateway-install")
+		if k == nil {
+			t.Fatal("expected kustomization gateway-install")
+		}
+		if !slices.Equal(k.Components, []string{"envoy"}) {
+			t.Errorf("expected components [envoy], got %v", k.Components)
 		}
 	})
 }

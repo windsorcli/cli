@@ -313,7 +313,7 @@ func TestDefaultTraceCollector_GetTrace_MergeAttribution(t *testing.T) {
 				assertAttributedTo(t, trace, "a-replace")
 			})
 
-			t.Run("RemoveAtHigherOrdinalDiscardsLowerEntry", func(t *testing.T) {
+			t.Run("RemoveAtHigherOrdinalKeepsOtherKeys", func(t *testing.T) {
 				// Given a blueprint value, a facet that sets it, and a higher facet that removes another key
 				tc := composeAttribution(t, kind.target(map[string]string{"key": "file"}), []blueprintv1alpha1.Facet{
 					kind.facet(attributionSpec{name: "low", ordinal: 100, values: map[string]string{"key": "low"}}),
@@ -323,22 +323,14 @@ func TestDefaultTraceCollector_GetTrace_MergeAttribution(t *testing.T) {
 				// When tracing the key
 				trace, err := tc.GetTrace(kind.path("key"))
 
-				// Then the trace names the composed blueprint and marks the facet as discarded
+				// Then the trace names the low facet, because the removal does not name the key
 				if err != nil {
 					t.Fatalf("GetTrace: %v", err)
 				}
-				if trace.Value != "file" {
-					t.Errorf("expected value 'file', got %q", trace.Value)
+				if trace.Value != "low" {
+					t.Errorf("expected value 'low', got %q", trace.Value)
 				}
-				effective := findEffective(trace.Contributions)
-				if effective == nil || effective.SourceName != "composed blueprint" {
-					t.Errorf("expected the composed blueprint as the source, got %+v", effective)
-				}
-				for _, c := range trace.Contributions {
-					if c.AbsFacetPath == attributionFacetPath("low") && !c.Discarded {
-						t.Errorf("expected the low facet to be discarded, got %+v", c)
-					}
-				}
+				assertAttributedTo(t, trace, "low")
 			})
 
 			t.Run("MergeKeepsEachContributor", func(t *testing.T) {

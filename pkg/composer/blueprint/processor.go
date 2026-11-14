@@ -51,18 +51,23 @@ type ExcludedFacet struct {
 }
 
 // collectedComponents holds the intermediate accumulation maps built during ProcessGlobally before
-// they are written to the target blueprint by applyCollectedComponents.
+// they are written to the target blueprint by applyCollectedComponents. The merge and replace entries
+// and the removals are in different maps, so a removal never discards an entry.
 type collectedComponents struct {
-	terraformByID       map[string]*blueprintv1alpha1.ConditionalTerraformComponent
-	kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization
-	fluxSystemByName    map[string]*blueprintv1alpha1.FluxSystem
+	terraformByID         map[string]*blueprintv1alpha1.ConditionalTerraformComponent
+	kustomizationByName   map[string]*blueprintv1alpha1.ConditionalKustomization
+	fluxSystemByName      map[string]*blueprintv1alpha1.FluxSystem
+	terraformRemovals     map[string][]removal[blueprintv1alpha1.TerraformComponent]
+	kustomizationRemovals map[string][]removal[blueprintv1alpha1.Kustomization]
+	fluxSystemRemovals    map[string][]removal[blueprintv1alpha1.FluxSystem]
 }
 
-// sourceRemovals holds the kustomization and flux system removals that win in one source, in name
+// sourceRemovals holds the terraform, kustomization, and flux system removals of one source, in name
 // order. ProcessGlobally applies them to the targets of the sources with a lower depth.
 type sourceRemovals struct {
-	kustomizations []blueprintv1alpha1.Kustomization
-	fluxSystems    []blueprintv1alpha1.FluxSystem
+	terraformComponents []blueprintv1alpha1.TerraformComponent
+	kustomizations      []blueprintv1alpha1.Kustomization
+	fluxSystems         []blueprintv1alpha1.FluxSystem
 }
 
 // SourceFacetSet is one source's contribution to global composition: its name, its dependency depth
@@ -396,14 +401,10 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 // messages of the included facets to target, with expressions evaluated against the resolved scope.
 // sourceName is the Source of components that have none. Messages stay unevaluated, in facet order;
 // GenerateResolved renders them later, when terraform outputs exist. ProcessGlobally calls it after
-// config and inclusion resolve, so it can emit each source on its own. It returns the kustomization
-// and flux system removals that won the merge and that it applied to target.
+// config and inclusion resolve, so it can emit each source on its own. It returns the
+// terraform, kustomization, and flux system removals of the source.
 func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) (sourceRemovals, error) {
-	collected := collectedComponents{
-		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
-		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
-		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
-	}
+	collected := newCollectedComponents()
 	crdRefs := make(map[string]struct{})
 
 	for _, facet := range includedFacets {
@@ -419,13 +420,13 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 				}
 			}
 		}
-		if err := p.collectTerraformComponents(facet, sourceName, collected.terraformByID, scope); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, collected, scope); err != nil {
 			return sourceRemovals{}, err
 		}
-		if err := p.collectKustomizations(facet, sourceName, collected.kustomizationByName, scope); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, collected, scope); err != nil {
 			return sourceRemovals{}, err
 		}
-		if err := p.collectFluxSystems(facet, sourceName, collected.fluxSystemByName, scope); err != nil {
+		if err := p.collectFluxSystems(facet, sourceName, collected, scope); err != nil {
 			return sourceRemovals{}, err
 		}
 		for _, ref := range facet.Crds {
@@ -523,6 +524,18 @@ func (p *BaseBlueprintProcessor) markDeferredPath(composedPath string) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// newCollectedComponents returns a collectedComponents with empty maps.
+func newCollectedComponents() collectedComponents {
+	return collectedComponents{
+		terraformByID:         make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
+		kustomizationByName:   make(map[string]*blueprintv1alpha1.ConditionalKustomization),
+		fluxSystemByName:      make(map[string]*blueprintv1alpha1.FluxSystem),
+		terraformRemovals:     make(map[string][]removal[blueprintv1alpha1.TerraformComponent]),
+		kustomizationRemovals: make(map[string][]removal[blueprintv1alpha1.Kustomization]),
+		fluxSystemRemovals:    make(map[string][]removal[blueprintv1alpha1.FluxSystem]),
+	}
+}
 
 // facetProvides returns the names a facet would contribute to composition: each terraform component's
 // ID, each kustomization's name, and each flux system's compiled tier names ("<name>-install" /

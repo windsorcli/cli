@@ -2,7 +2,15 @@ kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: remove-core-fields
-  description: Removes fields from a kustomization and a flux system that the core source contributes.
+  description: Removes fields from a terraform component, a kustomization, and a flux system that the core source contributes.
+
+terraform:
+
+- path: cluster
+  when: web.strip ?? true
+  strategy: remove
+  inputs:
+    debug: null
 
 kustomize:
 
