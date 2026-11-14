@@ -49,8 +49,8 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected windsor.yaml to exist, got %v", err)
 		}
-		if !strings.Contains(string(data), "version: v1alpha1") {
-			t.Errorf("Expected minimal v1alpha1 root config, got: %s", string(data))
+		if !strings.Contains(string(data), "version: v1alpha2") {
+			t.Errorf("Expected minimal v1alpha2 root config, got: %s", string(data))
 		}
 		if resolved != tmpDir {
 			t.Errorf("Expected resolved dir %s, got %s", tmpDir, resolved)
@@ -60,7 +60,7 @@ func TestEnsureProjectAnchor(t *testing.T) {
 	t.Run("NoOpWhenProjectAlreadyExistsInCwd", func(t *testing.T) {
 		// Given a directory that already has windsor.yaml
 		tmpDir := setup(t)
-		existing := []byte("version: v1alpha1\ncustom: preserved\n")
+		existing := []byte("version: v1alpha2\ncustom: preserved\n")
 		if err := os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), existing, 0644); err != nil {
 			t.Fatalf("Failed to seed windsor.yaml: %v", err)
 		}
@@ -91,7 +91,7 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		if err := os.MkdirAll(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte("version: v1alpha2\n"), 0644); err != nil {
 			t.Fatalf("Failed to seed windsor.yaml: %v", err)
 		}
 		if err := os.Chdir(subDir); err != nil {
