@@ -23,10 +23,7 @@ type Root struct {
 	Paths       *Paths            `yaml:"paths,omitempty"`
 }
 
-// Paths holds the project directories. Base is relative to the project root. The other keys are relative to Base.
+// Paths holds the project path settings. Base is relative to the project root.
 type Paths struct {
-	Base      string `yaml:"base,omitempty"`
-	Terraform string `yaml:"terraform,omitempty"`
-	Kustomize string `yaml:"kustomize,omitempty"`
-	Contexts  string `yaml:"contexts,omitempty"`
+	Base string `yaml:"base,omitempty"`
 }

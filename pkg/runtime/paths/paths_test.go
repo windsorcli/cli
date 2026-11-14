@@ -53,37 +53,16 @@ func TestNew(t *testing.T) {
 		assertPath(t, "TemplateDir", r.TemplateDir(), filepath.Join(root, "infra", "contexts", "_template"))
 	})
 
-	t.Run("KeysAreRelativeToBase", func(t *testing.T) {
-		// Given base and a per-key path
-		root := filepath.Join(string(filepath.Separator), "project")
-
-		// When the resolver is built
-		r, err := paths.New(root, &v1alpha2.Paths{Base: "infra", Terraform: "tf/modules"}, nil)
-
-		// Then the key joins base and the other keys keep their defaults
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		assertPath(t, "Terraform", r.Terraform(), filepath.Join(root, "infra", "tf", "modules"))
-		assertPath(t, "Contexts", r.Contexts(), filepath.Join(root, "infra", "contexts"))
-	})
-
 	t.Run("RejectsInvalidValues", func(t *testing.T) {
 		root := filepath.Join(string(filepath.Separator), "project")
 		cases := map[string]*v1alpha2.Paths{
 			"AbsoluteBase":            {Base: "/infra"},
-			"AbsoluteKey":             {Terraform: "/tf"},
 			"ParentElementInBase":     {Base: "../infra"},
-			"ParentElementInKey":      {Kustomize: "a/../../b"},
+			"ParentElementMidPath":    {Base: "a/../../b"},
 			"BaseInsideWindsor":       {Base: ".windsor/x"},
 			"BaseIsWindsor":           {Base: ".windsor"},
-			"KeyInsideWindsor":        {Contexts: ".windsor/contexts"},
 			"BaseIsProjectRoot":       {Base: "."},
 			"BaseCleansToProjectRoot": {Base: "a/.."},
-			"KeyIsBase":               {Base: "infra", Terraform: "."},
-			"KeysEqual":               {Terraform: "src", Kustomize: "src"},
-			"KeyContainsKey":          {Terraform: "src", Kustomize: "src/k"},
-			"KeyInsideKey":            {Contexts: "a/b", Terraform: "a"},
 		}
 		for name, block := range cases {
 			t.Run(name, func(t *testing.T) {
@@ -178,14 +157,14 @@ func TestLoad(t *testing.T) {
 
 	t.Run("V1alpha2RootGivesConfiguredPaths", func(t *testing.T) {
 		// Given a v1alpha2 root file with paths
-		r, err := loadWith(t, "version: v1alpha2\npaths:\n  base: infra\n  contexts: ctx\n")
+		r, err := loadWith(t, "version: v1alpha2\npaths:\n  base: infra\n")
 
 		// Then the directories follow the block
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		assertPath(t, "Kustomize", r.Kustomize(), filepath.Join(r.ProjectRoot(), "infra", "kustomize"))
-		assertPath(t, "Contexts", r.Contexts(), filepath.Join(r.ProjectRoot(), "infra", "ctx"))
+		assertPath(t, "Contexts", r.Contexts(), filepath.Join(r.ProjectRoot(), "infra", "contexts"))
 	})
 
 	t.Run("InvalidBlockNamesTheFile", func(t *testing.T) {
@@ -229,7 +208,7 @@ func TestLoad(t *testing.T) {
 
 func TestResolver_RebaseKustomize(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "project")
-	r, err := paths.New(root, &v1alpha2.Paths{Base: "infra", Kustomize: "k8s"}, nil)
+	r, err := paths.New(root, &v1alpha2.Paths{Base: "infra"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,13 +219,13 @@ func TestResolver_RebaseKustomize(t *testing.T) {
 		got := r.RebaseKustomize("kustomize/ingress/base")
 
 		// Then it moves under the configured directory
-		if got != "infra/k8s/ingress/base" {
+		if got != "infra/kustomize/ingress/base" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("MapsTheBareDirectory", func(t *testing.T) {
-		if got := r.RebaseKustomize("kustomize"); got != "infra/k8s" {
+		if got := r.RebaseKustomize("kustomize"); got != "infra/kustomize" {
 			t.Fatalf("got %q", got)
 		}
 	})

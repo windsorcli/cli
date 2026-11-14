@@ -534,10 +534,10 @@ func TestLoadConfig_RootPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("GetConfigRootFollowsTheContextsKey", func(t *testing.T) {
-		// Given a root file with a per-key contexts path
+	t.Run("GetConfigRootFollowsBase", func(t *testing.T) {
+		// Given a root file with paths.base
 		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  contexts: ctx\n")
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
 		f.load(t)
 
 		// When the config root is read
@@ -547,8 +547,25 @@ func TestLoadConfig_RootPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetConfigRoot: %v", err)
 		}
-		if want := filepath.Join(f.root, "ctx", "local"); got != want {
+		if want := filepath.Join(f.root, "infra", "contexts", "local"); got != want {
 			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("GetProjectPathsReturnsTheResolverOfTheRootFile", func(t *testing.T) {
+		// Given a root file with paths.base
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
+
+		// When the project paths are read
+		resolver, err := f.handler.GetProjectPaths()
+
+		// Then the resolver follows base
+		if err != nil {
+			t.Fatalf("GetProjectPaths: %v", err)
+		}
+		if want := filepath.Join(f.root, "infra", "terraform"); resolver.Terraform() != want {
+			t.Errorf("got %q, want %q", resolver.Terraform(), want)
 		}
 	})
 
@@ -586,17 +603,31 @@ func TestLoadConfig_RootPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectsAPerKindKey", func(t *testing.T) {
+		// Given a root file with a terraform key under paths
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  terraform: tf\n")
+
+		// When config is loaded
+		err := f.handler.LoadConfig()
+
+		// Then the closed schema rejects the key
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+	})
+
 	t.Run("RejectsAnEmptyPathsValue", func(t *testing.T) {
 		// Given a root file that sets a paths key to an empty string
 		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  terraform: \"\"\n")
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: \"\"\n")
 
 		// When config is loaded
 		err := f.handler.LoadConfig()
 
 		// Then the load fails and names the key
-		if err == nil || !strings.Contains(err.Error(), "paths.terraform") {
-			t.Fatalf("expected an error that names paths.terraform, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "paths.base") {
+			t.Fatalf("expected an error that names paths.base, got %v", err)
 		}
 	})
 

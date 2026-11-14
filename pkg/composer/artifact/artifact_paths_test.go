@@ -73,22 +73,6 @@ func TestArtifactBuilder_Bundle_ProjectPaths(t *testing.T) {
 		assertNames(t, got, want)
 	})
 
-	t.Run("ReadsFromPerKeyPaths", func(t *testing.T) {
-		// Given a project with one path per key
-		root := t.TempDir()
-		writeTree(t, root, map[string]string{
-			"ctx/_template/blueprint.yaml": "kind: Blueprint\n",
-			"k8s/app/kustomization.yaml":   "resources: []\n",
-			"tf/vpc/main.tf":               "terraform {}\n",
-		})
-
-		// When the project bundles with per-key paths
-		got := bundledNames(t, root, &v1alpha2.Paths{Terraform: "tf", Kustomize: "k8s", Contexts: "ctx"})
-
-		// Then the archive holds the standard layout
-		assertNames(t, got, want)
-	})
-
 	t.Run("ReadsTheDefaultLayout", func(t *testing.T) {
 		// Given a project with the default directories
 		root := t.TempDir()

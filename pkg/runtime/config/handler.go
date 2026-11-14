@@ -57,6 +57,7 @@ type ConfigHandler interface {
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
 	GetWindsorScratchPath() (string, error)
+	GetProjectPaths() (*paths.Resolver, error)
 	Clean() error
 	IsLoaded() bool
 	GenerateContextID() error
@@ -330,6 +331,16 @@ func (c *configHandler) GetConfigRoot() (string, error) {
 		return "", err
 	}
 	return resolver.ContextDir(context), nil
+}
+
+// GetProjectPaths returns the path resolver of the project root. The first call reads and validates
+// the root file, and later calls return the stored resolver.
+func (c *configHandler) GetProjectPaths() (*paths.Resolver, error) {
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return nil, err
+	}
+	return c.resolver(projectRoot)
 }
 
 // GetWindsorScratchPath retrieves the windsor scratch directory path based on the current context

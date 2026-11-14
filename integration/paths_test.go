@@ -28,7 +28,6 @@ type pathsLayout struct {
 
 var pathsLayouts = []pathsLayout{
 	{fixture: "paths-base", terraform: "infra/terraform", kustomize: "infra/kustomize", contexts: "infra/contexts"},
-	{fixture: "paths-keys", terraform: "tf", kustomize: "k8s", contexts: "ctx"},
 }
 
 // skipIfKustomizeNotInstalled skips the test when the kustomize CLI is absent.
@@ -139,7 +138,7 @@ func TestPaths_BundleWritesTheStandardArchiveLayout(t *testing.T) {
 				}
 			}
 			for name := range entries {
-				for _, moved := range []string{"infra/", "tf/", "k8s/", "ctx/"} {
+				for _, moved := range []string{"infra/"} {
 					if strings.HasPrefix(name, moved) {
 						t.Errorf("archive entry %s keeps the project directory", name)
 					}
@@ -220,11 +219,11 @@ func TestPaths_PlanKustomizeBuildsFromTheConfiguredKustomizeDirectory(t *testing
 func TestPaths_RejectsAnInvalidPathsBlock(t *testing.T) {
 	cases := map[string]string{
 		"AbsolutePath":      "paths:\n  base: /abs\n",
-		"ParentElement":     "paths:\n  terraform: ../outside\n",
-		"InsideWindsorDir":  "paths:\n  contexts: .windsor/contexts\n",
-		"OverlappingKeys":   "paths:\n  terraform: src\n  kustomize: src/k\n",
+		"ParentElement":     "paths:\n  base: ../outside\n",
+		"InsideWindsorDir":  "paths:\n  base: .windsor/infra\n",
+		"PerKindKey":        "paths:\n  terraform: tf\n",
 		"BaseIsProjectRoot": "paths:\n  base: .\n",
-		"EmptyValue":        "paths:\n  terraform: \"\"\n",
+		"EmptyValue":        "paths:\n  base: \"\"\n",
 	}
 	for name, block := range cases {
 		t.Run(name, func(t *testing.T) {

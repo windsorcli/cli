@@ -1,6 +1,6 @@
 // The Paths package resolves the project source directories from the v1alpha2 root file.
 // It provides one Resolver that returns the base, terraform, kustomize, and contexts directories as absolute paths.
-// It validates the paths block of the root file, including the symbolic link check.
+// It validates paths.base, including the symbolic link check.
 // The .windsor directory and windsor.yaml stay at the project root and are not part of the resolver.
 
 package paths
@@ -22,14 +22,14 @@ import (
 // =============================================================================
 
 const (
-	// DefaultTerraformDir is the default name of the terraform source directory.
-	DefaultTerraformDir = "terraform"
+	// TerraformDirName is the name of the terraform source directory under base.
+	TerraformDirName = "terraform"
 
-	// DefaultKustomizeDir is the default name of the kustomize source directory.
-	DefaultKustomizeDir = "kustomize"
+	// KustomizeDirName is the name of the kustomize source directory under base.
+	KustomizeDirName = "kustomize"
 
-	// DefaultContextsDir is the default name of the contexts directory.
-	DefaultContextsDir = "contexts"
+	// ContextsDirName is the name of the contexts directory under base.
+	ContextsDirName = "contexts"
 
 	// TemplateDirName is the name of the template directory inside the contexts directory.
 	TemplateDirName = "_template"
@@ -76,7 +76,7 @@ func Default(projectRoot string) *Resolver {
 }
 
 // New validates p and returns the resolver for projectRoot. A nil p gives the default layout.
-// A nil shims skips the symbolic link check. It returns an error for the first rule that p breaks.
+// A nil shims skips the symbolic link check. It returns an error when p.Base breaks a rule.
 func New(projectRoot string, p *v1alpha2.Paths, s *Shims) (*Resolver, error) {
 	if p == nil {
 		p = &v1alpha2.Paths{}
@@ -87,12 +87,9 @@ func New(projectRoot string, p *v1alpha2.Paths, s *Shims) (*Resolver, error) {
 	base := filepath.FromSlash(p.Base)
 	r := &Resolver{projectRoot: projectRoot}
 	r.base = filepath.Join(projectRoot, base)
-	r.terraform = filepath.Join(r.base, filepath.FromSlash(valueOr(p.Terraform, DefaultTerraformDir)))
-	r.kustomize = filepath.Join(r.base, filepath.FromSlash(valueOr(p.Kustomize, DefaultKustomizeDir)))
-	r.contexts = filepath.Join(r.base, filepath.FromSlash(valueOr(p.Contexts, DefaultContextsDir)))
-	if err := checkOverlap(r); err != nil {
-		return nil, err
-	}
+	r.terraform = filepath.Join(r.base, TerraformDirName)
+	r.kustomize = filepath.Join(r.base, KustomizeDirName)
+	r.contexts = filepath.Join(r.base, ContextsDirName)
 	if s != nil && s.EvalSymlinks != nil {
 		if err := checkSymlinks(r, s); err != nil {
 			return nil, err
@@ -170,10 +167,10 @@ func (r *Resolver) RelSlash(abs string) string {
 // outside the standard directory is returned unchanged.
 func (r *Resolver) RebaseKustomize(path string) string {
 	path = filepath.ToSlash(path)
-	if path != DefaultKustomizeDir && !strings.HasPrefix(path, DefaultKustomizeDir+"/") {
+	if path != KustomizeDirName && !strings.HasPrefix(path, KustomizeDirName+"/") {
 		return path
 	}
-	return r.RelSlash(r.kustomize) + strings.TrimPrefix(path, DefaultKustomizeDir)
+	return r.RelSlash(r.kustomize) + strings.TrimPrefix(path, KustomizeDirName)
 }
 
 // IsUnderTerraform reports whether p is the terraform directory or inside it.
@@ -186,86 +183,40 @@ func (r *Resolver) IsUnderTemplate(p string) bool { return within(r.TemplateDir(
 // Private Methods
 // =============================================================================
 
-// validate applies the rules that need no file system and no other key.
+// validate rejects an empty, absolute, or .. base, a base inside .windsor, and a base that is the project root.
 func validate(p *v1alpha2.Paths) error {
-	for _, key := range []struct{ name, value string }{
-		{"base", p.Base}, {"terraform", p.Terraform}, {"kustomize", p.Kustomize}, {"contexts", p.Contexts},
-	} {
-		if key.value == "" {
-			continue
-		}
-		if err := validateValue(key.name, key.value); err != nil {
-			return err
-		}
+	if p.Base == "" {
+		return nil
 	}
-	if p.Base != "" && cleanRel(p.Base) == "." {
-		return fmt.Errorf("paths.base resolves to the project root. Remove it, because the default already is the project root")
-	}
-	for _, key := range []struct{ name, value string }{
-		{"terraform", p.Terraform}, {"kustomize", p.Kustomize}, {"contexts", p.Contexts},
-	} {
-		if key.value != "" && cleanRel(key.value) == "." {
-			return fmt.Errorf("paths.%s resolves to paths.base itself. Name a directory inside it", key.name)
-		}
-	}
-	return nil
-}
-
-// validateValue rejects an absolute value, a value with a .. element, and a value inside .windsor.
-func validateValue(name, value string) error {
-	slashed := strings.ReplaceAll(value, "\\", "/")
-	if filepath.IsAbs(value) || strings.HasPrefix(slashed, "/") || (len(slashed) > 1 && slashed[1] == ':') {
-		return fmt.Errorf("paths.%s is %q, and the path MUST be relative", name, value)
+	slashed := strings.ReplaceAll(p.Base, "\\", "/")
+	if filepath.IsAbs(p.Base) || strings.HasPrefix(slashed, "/") || (len(slashed) > 1 && slashed[1] == ':') {
+		return fmt.Errorf("paths.base is %q, and the path MUST be relative", p.Base)
 	}
 	for _, element := range strings.Split(slashed, "/") {
 		if element == ".." {
-			return fmt.Errorf("paths.%s is %q, and the path MUST NOT contain '..'", name, value)
+			return fmt.Errorf("paths.base is %q, and the path MUST NOT contain '..'", p.Base)
 		}
 	}
-	if cleanRel(value) == WindsorDirName || strings.HasPrefix(cleanRel(value), WindsorDirName+"/") {
-		return fmt.Errorf("paths.%s is %q, and the path MUST NOT be inside %s", name, value, WindsorDirName)
+	cleaned := cleanRel(p.Base)
+	if cleaned == WindsorDirName || strings.HasPrefix(cleaned, WindsorDirName+"/") {
+		return fmt.Errorf("paths.base is %q, and the path MUST NOT be inside %s", p.Base, WindsorDirName)
+	}
+	if cleaned == "." {
+		return fmt.Errorf("paths.base resolves to the project root. Remove it, because the default already is the project root")
 	}
 	return nil
 }
 
-// checkOverlap rejects a source directory that equals or contains another, and any directory
-// that sits inside .windsor once base is applied.
-func checkOverlap(r *Resolver) error {
-	dirs := []struct{ name, path string }{
-		{"terraform", r.terraform}, {"kustomize", r.kustomize}, {"contexts", r.contexts},
-	}
-	windsor := filepath.Join(r.projectRoot, WindsorDirName)
-	for i, a := range dirs {
-		if within(windsor, a.path) {
-			return fmt.Errorf("paths.%s resolves inside %s, and the path MUST NOT", a.name, WindsorDirName)
-		}
-		for _, b := range dirs[i+1:] {
-			if within(a.path, b.path) || within(b.path, a.path) {
-				return fmt.Errorf("paths.%s and paths.%s overlap, and the directories MUST NOT contain each other", a.name, b.name)
-			}
-		}
-	}
-	if within(windsor, r.base) {
-		return fmt.Errorf("paths.base resolves inside %s, and the path MUST NOT", WindsorDirName)
-	}
-	return nil
-}
-
-// checkSymlinks resolves symbolic links in base and the three directories, and fails when one
-// resolves outside the resolved project root. A directory that does not exist is checked through
-// its nearest existing parent.
+// checkSymlinks resolves symbolic links in base, and fails when base resolves outside the resolved
+// project root. A base that does not exist is checked through its nearest existing parent.
 func checkSymlinks(r *Resolver, s *Shims) error {
 	root, err := s.EvalSymlinks(r.projectRoot)
 	if err != nil {
 		return nil
 	}
-	for name, path := range map[string]string{
-		"base": r.base, "terraform": r.terraform, "kustomize": r.kustomize, "contexts": r.contexts,
-	} {
-		resolved, ok := resolveExisting(path, s)
-		if ok && !within(root, resolved) {
-			return fmt.Errorf("paths.%s resolves through a symbolic link to %s, which is outside the project root", name, resolved)
-		}
+	resolved, ok := resolveExisting(r.base, s)
+	if ok && !within(root, resolved) {
+		return fmt.Errorf("paths.base resolves through a symbolic link to %s, which is outside the project root", resolved)
 	}
 	return nil
 }
@@ -273,14 +224,6 @@ func checkSymlinks(r *Resolver, s *Shims) error {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-// valueOr returns value, or fallback when value is empty.
-func valueOr(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
-}
 
 // cleanRel cleans a relative path and returns it with forward slashes.
 func cleanRel(p string) string {

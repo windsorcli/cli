@@ -15,7 +15,7 @@ import (
 // =============================================================================
 
 func TestFluxKustomization(t *testing.T) {
-	resolver, err := paths.New("/project", &v1alpha2.Paths{Base: "infra", Kustomize: "k8s"}, nil)
+	resolver, err := paths.New("/project", &v1alpha2.Paths{Base: "infra"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestFluxKustomization(t *testing.T) {
 		got := build("", resolver)
 
 		// Then the path points at the configured kustomize directory
-		if got != "infra/k8s/ingress" {
+		if got != "infra/kustomize/ingress" {
 			t.Fatalf("got %q", got)
 		}
 	})

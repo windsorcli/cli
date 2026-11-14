@@ -195,12 +195,12 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		}
 	}
 
-	if rt.Paths == nil || rt.Paths.ProjectRoot() != rt.ProjectRoot {
-		rt.Paths = loadPaths(rt.ProjectRoot)
-	}
-
 	if rt.ConfigHandler == nil {
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
+	}
+
+	if rt.Paths == nil || rt.Paths.ProjectRoot() != rt.ProjectRoot {
+		rt.Paths = loadPaths(rt.ConfigHandler, rt.ProjectRoot)
 	}
 
 	if rt.Shell == nil {
@@ -411,9 +411,13 @@ func (rt *Runtime) loadSecrets() error {
 // Helpers
 // =============================================================================
 
-// loadPaths builds the path resolver of projectRoot from its root file. It returns the default
-// layout when the root file cannot give one. The config handler reports the same error when it loads the config.
-func loadPaths(projectRoot string) *paths.Resolver {
+// loadPaths returns the resolver of the config handler when it belongs to projectRoot. Otherwise it
+// reads the root file itself. It returns the default layout when no resolver is available. The
+// config handler reports an invalid paths block when it loads the config.
+func loadPaths(handler config.ConfigHandler, projectRoot string) *paths.Resolver {
+	if resolver, err := handler.GetProjectPaths(); err == nil && resolver != nil && resolver.ProjectRoot() == projectRoot {
+		return resolver
+	}
 	resolver, err := paths.Load(projectRoot, nil)
 	if err != nil {
 		return paths.Default(projectRoot)
