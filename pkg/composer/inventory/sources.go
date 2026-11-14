@@ -15,6 +15,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/goccy/go-yaml"
+	"github.com/package-url/packageurl-go"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -67,8 +68,9 @@ type sourceList struct {
 // sourceTrees returns a tree for each oci:// source in sources. A source whose artifact holds a BOM
 // gets the components of that BOM, and a tree for each of its own sources that the BOM does not hold.
 // Another source gets the tags of the whole cached source and the trees of its own sources. A source
-// whose URL is in path gets no children, so a loop stops. It reuses the tree of a URL that it built
-// before, and fails when the nesting is deeper than maxSourceDepth.
+// whose URL is in path gets no children, so a loop stops. A source with no digest in its URL gets the
+// digest of its cached pull. It reuses the tree of a URL that it built before, and fails when the
+// nesting is deeper than maxSourceDepth.
 func (r bundleReader) sourceTrees(sources []blueprintv1alpha1.Source, path []string) ([]SourceTree, error) {
 	var trees []SourceTree
 	for _, source := range ociSources(sources) {
@@ -88,6 +90,11 @@ func (r bundleReader) sourceTrees(sources []blueprintv1alpha1.Source, path []str
 		dir, err := r.pull(source)
 		if err != nil {
 			return nil, err
+		}
+		if tree.Entry.Digest == "" {
+			if tree.Entry.Digest, err = artifact.ReadCachedDigest(dir); err != nil {
+				return nil, werror.Wrap(err, "failed to read the digest of source %q", source.Name)
+			}
 		}
 		bom, err := artifact.ReadCachedBOM(dir)
 		if err != nil {
@@ -146,7 +153,8 @@ func (r bundleReader) pull(source blueprintv1alpha1.Source) (string, error) {
 
 // sourceTree returns the tree of blueprint from the tag entries of each root. A source is a child of each
 // source whose cached _template/blueprint.yaml names it, and a source that no other source names is at the
-// top. A source that the walk does not reach from the top, as in a loop, is also at the top.
+// top. A source that the walk does not reach from the top, as in a loop, is also at the top. A source with
+// no digest in its URL gets the digest of its cached pull.
 func (l *BaseLister) sourceTree(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot, entries []Entry) (SourceTree, []string) {
 	byObject := make(map[string][]Entry)
 	for _, e := range entries {
@@ -164,8 +172,14 @@ func (l *BaseLister) sourceTree(blueprint *blueprintv1alpha1.Blueprint, roots []
 	}
 	children := make(map[string][]string)
 	named := make(map[string]bool)
+	digests := make(map[string]string)
 	var notes []string
 	for _, root := range roots[1:] {
+		digest, err := artifact.ReadCachedDigest(root.dir)
+		if err != nil {
+			notes = append(notes, fmt.Sprintf("Source %q: the BOM gives no digest for it, because %v.", root.name, err))
+		}
+		digests[root.name] = digest
 		nested, err := readSources(root.dir)
 		if err != nil {
 			notes = append(notes, fmt.Sprintf("Source %q: the BOM does not tell which sources it pulls, because %v.", root.name, err))
@@ -184,6 +198,9 @@ func (l *BaseLister) sourceTree(blueprint *blueprintv1alpha1.Blueprint, roots []
 	build = func(name string, path []string) SourceTree {
 		visited[name] = true
 		tree := SourceTree{Name: name, Entry: sourceEntry(byName[name]), Artifacts: groupArtifacts(byObject["source/"+name])}
+		if tree.Entry.Digest == "" {
+			tree.Entry.Digest = digests[name]
+		}
 		if slices.Contains(path, name) {
 			return tree
 		}
@@ -239,7 +256,8 @@ func parseSources(data []byte) ([]blueprintv1alpha1.Source, error) {
 	return sources, nil
 }
 
-// sourcesNotIn returns the oci:// sources in sources that have no data component in bom.
+// sourcesNotIn returns the oci:// sources in sources that have no data component in bom. It compares
+// package URLs with no version, so a component with the digest of its pull still matches its source.
 // A BOM that does not list the sources of its blueprint thus gets a tree for each of them.
 func sourcesNotIn(sources []blueprintv1alpha1.Source, bom cdx.BOM) []blueprintv1alpha1.Source {
 	held := make(map[string]bool)
@@ -249,16 +267,26 @@ func sourcesNotIn(sources []blueprintv1alpha1.Source, bom cdx.BOM) []blueprintv1
 	}
 	for _, c := range components {
 		if c.Type == cdx.ComponentTypeData {
-			held[c.PackageURL] = true
+			held[withoutVersion(c.PackageURL)] = true
 		}
 	}
 	var out []blueprintv1alpha1.Source
 	for _, source := range ociSources(sources) {
-		if !held[packageURL(sourceEntry(source))] {
+		if !held[withoutVersion(packageURL(sourceEntry(source)))] {
 			out = append(out, source)
 		}
 	}
 	return out
+}
+
+// withoutVersion returns purl with no version. It returns purl unchanged when purl does not parse.
+func withoutVersion(purl string) string {
+	parsed, err := packageurl.FromString(purl)
+	if err != nil {
+		return purl
+	}
+	parsed.Version = ""
+	return parsed.ToString()
 }
 
 // ociSources returns the sources in sources that have a name and an oci:// URL.

@@ -330,6 +330,33 @@ func TestBaseLister_List(t *testing.T) {
 		}
 	})
 
+	t.Run("GivesASourceTheDigestOfItsCachedPull", func(t *testing.T) {
+		// Given a cached source with the digest of its pull, and a tag in the URL only
+		m := setupMocks(t)
+		dir := t.TempDir()
+		digest := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+		writeFile(t, dir, "digest", digest)
+		m.artifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return dir, nil
+		}
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"}},
+		}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{All: true})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the source entry has the tag and the digest
+		core := result.Tree.Sources[0].Entry
+		if core.Version != "v0.9.0" || core.Digest != digest {
+			t.Errorf("expected core with its tag and digest, got %+v", core)
+		}
+	})
+
 	t.Run("NotesASourceWhoseTagsItCannotRead", func(t *testing.T) {
 		// Given a Git source and an oci:// source that is not in the cache
 		m := setupMocks(t)

@@ -229,7 +229,12 @@ A bundle BOM lists each artifact that the bundle can pull, also the artifacts of
 sources. A site that copies a blueprint that consumes core reads one BOM:
 
 - Each `oci://` source in the `_template/blueprint.yaml` of the bundle is a `data` component with
-  the tag of its URL. When the URL gives a digest, the component has that digest, as an image does.
+  the tag of its URL. The component has the digest of the URL, or else the manifest digest that
+  the pull wrote to the `digest` file of the cache. A tag can move, so this digest names the exact
+  artifact that the bundle read. A cache from an older CLI has no `digest` file, and the component
+  then has no digest.
+- A source in a source BOM matches a source of the blueprint by its package URL with no version.
+  A digest thus does not make the bundle read one source twice, or list it twice.
 - The components of a source come from `artifact-manifest.cdx.json` in the source artifact. That
   BOM lists the sources of the source, so the list continues to every depth.
 - The `dependencies` graph tells which blueprint pulls each component. The blueprint depends on its

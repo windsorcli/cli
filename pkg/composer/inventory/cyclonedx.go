@@ -25,6 +25,7 @@ import (
 // root is the bom-ref of the metadata component. owned marks the components of the walked tree, which
 // win over components read from a source BOM. expanded marks each source that the walk has expanded.
 // imported holds the edges read from source BOMs, which apply only to a component that is not owned.
+// sources maps the package URL with no version of each source to the bom-ref that the BOM uses for it.
 type bomBuilder struct {
 	root       string
 	components []cdx.Component
@@ -33,6 +34,7 @@ type bomBuilder struct {
 	expanded   map[string]bool
 	edges      map[string]map[string]bool
 	imported   map[string]map[string]bool
+	sources    map[string]string
 }
 
 // =============================================================================
@@ -52,7 +54,9 @@ func CycloneDX(tree SourceTree, name, version string) ([]byte, error) {
 		expanded: make(map[string]bool),
 		edges:    make(map[string]map[string]bool),
 		imported: make(map[string]map[string]bool),
+		sources:  make(map[string]string),
 	}
+	b.addSourceRefs(tree)
 	direct := b.addTree(tree)
 
 	bom := cdx.NewBOM()
@@ -127,7 +131,7 @@ func (b *bomBuilder) addTree(tree SourceTree) []string {
 // tree does not own. A nested component gets an edge from its parent. A component with no bom-ref uses
 // its package URL.
 func (b *bomBuilder) addBOM(bom cdx.BOM) []string {
-	local := make(map[string]bool)
+	local := make(map[string]string)
 	var top []string
 	if bom.Components != nil {
 		for _, c := range *bom.Components {
@@ -147,16 +151,16 @@ func (b *bomBuilder) addBOM(bom cdx.BOM) []string {
 			var dependsOn []string
 			if d.Dependencies != nil {
 				for _, target := range *d.Dependencies {
-					if local[target] {
-						dependsOn = append(dependsOn, target)
+					if ref, ok := local[target]; ok {
+						dependsOn = append(dependsOn, ref)
 					}
 				}
 			}
 			switch {
 			case root != "" && d.Ref == root:
 				direct, hasRoot = append(direct, dependsOn...), true
-			case local[d.Ref]:
-				addEdges(b.imported, d.Ref, dependsOn...)
+			case local[d.Ref] != "":
+				addEdges(b.imported, local[d.Ref], dependsOn...)
 			}
 		}
 	}
@@ -167,9 +171,10 @@ func (b *bomBuilder) addBOM(bom cdx.BOM) []string {
 }
 
 // addImported adds c from a source BOM, with each component nested in it and an edge from c to each one.
-// It records each added bom-ref in local, and returns the bom-ref of c. It returns "" for a component with
-// no bom-ref and no package URL, or whose bom-ref is the root of this BOM.
-func (b *bomBuilder) addImported(c cdx.Component, local map[string]bool) string {
+// A source that the BOM already holds under another digest keeps its first bom-ref. It maps each bom-ref
+// of the source BOM to its bom-ref in local, and returns the bom-ref of c. It returns "" for a component
+// with no bom-ref and no package URL, or whose bom-ref is the root of this BOM.
+func (b *bomBuilder) addImported(c cdx.Component, local map[string]string) string {
 	var children []cdx.Component
 	if c.Components != nil {
 		children = *c.Components
@@ -181,14 +186,38 @@ func (b *bomBuilder) addImported(c cdx.Component, local map[string]bool) string 
 	if c.BOMRef == "" || c.BOMRef == b.root {
 		return ""
 	}
+	original := c.BOMRef
+	if c.Type == cdx.ComponentTypeData {
+		key := withoutVersion(c.BOMRef)
+		if ref, ok := b.sources[key]; ok {
+			c.BOMRef = ref
+		} else {
+			b.sources[key] = c.BOMRef
+		}
+	}
 	ref := b.add(c, false)
-	local[ref] = true
+	local[original] = ref
 	for _, child := range children {
 		if childRef := b.addImported(child, local); childRef != "" {
 			addEdges(b.imported, ref, childRef)
 		}
 	}
 	return ref
+}
+
+// addSourceRefs maps the package URL with no version of each source in tree to its bom-ref, before the
+// walk reads a source BOM. A source BOM that lists one of these sources under another digest thus uses
+// the bom-ref of the walked tree.
+func (b *bomBuilder) addSourceRefs(tree SourceTree) {
+	for _, source := range tree.Sources {
+		ref := packageURL(source.Entry)
+		key := withoutVersion(ref)
+		if _, ok := b.sources[key]; ok {
+			continue
+		}
+		b.sources[key] = ref
+		b.addSourceRefs(source)
+	}
 }
 
 // add adds c and returns its bom-ref. It keeps one component for each bom-ref. An owned component

@@ -243,9 +243,16 @@ func useRealYAMLShims(shims *Shims) {
 	shims.YamlUnmarshal = yaml.Unmarshal
 }
 
+// testImageDigestHex is the manifest digest that the default test shims give each pulled image.
+const testImageDigestHex = "0000000000000000000000000000000000000000000000000000000000000001"
+
 // setupDefaultShims creates shims with default test configurations
 func setupDefaultShims() *Shims {
 	shims := NewShims()
+
+	shims.ImageDigest = func(img v1.Image) (v1.Hash, error) {
+		return v1.Hash{Algorithm: "sha256", Hex: testImageDigestHex}, nil
+	}
 
 	// Standard YAML processing mocks
 	shims.YamlUnmarshal = func(data []byte, v any) error {

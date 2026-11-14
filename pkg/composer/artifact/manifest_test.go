@@ -84,3 +84,54 @@ func TestReadCachedBOM(t *testing.T) {
 		}
 	})
 }
+
+func TestReadCachedDigest(t *testing.T) {
+	t.Run("ReturnsTheCachedDigest", func(t *testing.T) {
+		// Given a cache directory with a digest file
+		dir := t.TempDir()
+		want := "sha256:" + testImageDigestHex
+		if err := os.WriteFile(filepath.Join(dir, digestFilename), []byte(want+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// When ReadCachedDigest is called
+		digest, err := ReadCachedDigest(dir)
+
+		// Then it returns the digest
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if digest != want {
+			t.Errorf("expected %q, got %q", want, digest)
+		}
+	})
+
+	t.Run("ReturnsNoDigestForACacheWithNoDigestFile", func(t *testing.T) {
+		// Given a cache directory from an older CLI
+		dir := t.TempDir()
+
+		// When ReadCachedDigest is called
+		digest, err := ReadCachedDigest(dir)
+
+		// Then it returns no digest and no error
+		if err != nil || digest != "" {
+			t.Errorf("expected no digest and no error, got %q, %v", digest, err)
+		}
+	})
+
+	t.Run("ReturnsErrorForAnInvalidDigest", func(t *testing.T) {
+		// Given a digest file that holds no valid digest
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, digestFilename), []byte("latest"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// When ReadCachedDigest is called
+		_, err := ReadCachedDigest(dir)
+
+		// Then it fails
+		if err == nil {
+			t.Error("expected an error")
+		}
+	})
+}

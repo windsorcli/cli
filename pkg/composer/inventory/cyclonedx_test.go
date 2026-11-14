@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -71,12 +72,14 @@ type testComponent struct {
 	} `json:"hashes"`
 }
 
-// Package URLs of the tests.
+// Package URLs and digests of the tests.
 const (
-	corePurl    = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.9.0"
-	basePurl    = "pkg:oci/base?repository_url=ghcr.io%2Fwindsorcli%2Fbase&tag=v1.0.0"
-	busyboxPurl = "pkg:oci/busybox?repository_url=docker.io%2Flibrary%2Fbusybox&tag=1.37"
-	etcdPurl    = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+	coreDigestHex = "1111111111111111111111111111111111111111111111111111111111111111"
+	baseDigestHex = "2222222222222222222222222222222222222222222222222222222222222222"
+	corePurl      = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.9.0"
+	basePurl      = "pkg:oci/base?repository_url=ghcr.io%2Fwindsorcli%2Fbase&tag=v1.0.0"
+	busyboxPurl   = "pkg:oci/busybox?repository_url=docker.io%2Flibrary%2Fbusybox&tag=1.37"
+	etcdPurl      = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
 )
 
 // decodeBOM decodes data as a CycloneDX BOM and fails the test on an error.
@@ -130,6 +133,14 @@ func writeArtifactTar(t *testing.T, dir string, files map[string]string) {
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeDigest writes the manifest digest sha256:<hex> to the digest file of the cache directory dir.
+func writeDigest(t *testing.T, dir, hex string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "digest"), []byte("sha256:"+hex), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -490,6 +501,108 @@ func TestBundleBOMWriter(t *testing.T) {
 		}
 		if got, _ := bom.dependsOn(basePurl); strings.Join(got, " ") != busyboxPurl {
 			t.Errorf("expected base to pull busybox, got %v", got)
+		}
+	})
+
+	t.Run("RecordsTheDigestOfThePulledSource", func(t *testing.T) {
+		// Given a cached core artifact with the digest of its pull, and a tag in the URL only
+		coreDir := t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"metadata.yaml": "name: core\n"})
+		writeDigest(t, coreDir, coreDigestHex)
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+
+		// When the writer is called
+		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the core component has the tag and the digest of the pull, and app pulls it
+		bom := decodeBOM(t, data)
+		core := bom.Components[0]
+		if core.Type != "data" || core.Version != "v0.9.0" || len(core.Hashes) != 1 || core.Hashes[0].Content != coreDigestHex {
+			t.Fatalf("expected core with its tag and digest, got %+v", core)
+		}
+		if !strings.Contains(core.Purl, coreDigestHex) {
+			t.Errorf("expected the digest in the package URL, got %q", core.Purl)
+		}
+		if got, _ := bom.dependsOn("app"); strings.Join(got, " ") != core.BOMRef {
+			t.Errorf("expected app to pull core, got %v", got)
+		}
+	})
+
+	t.Run("MatchesASourceInTheSourceBOMByItsTagAndNotItsDigest", func(t *testing.T) {
+		// Given a core BOM that lists base with the digest of its pull, and a blueprint in core that names base
+		coreBOM, err := inventory.CycloneDX(inventory.SourceTree{Sources: []inventory.SourceTree{{
+			Name:  "base",
+			Entry: inventory.Entry{Kind: inventory.KindBlueprint, Transport: inventory.TransportOCI, Reference: "ghcr.io/windsorcli/base", Version: "v1.0.0", Digest: "sha256:" + baseDigestHex},
+		}}}, "core", "v0.9.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		coreDir := t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": string(coreBOM)})
+		writeFile(t, coreDir, "_template/blueprint.yaml", "sources:\n- name: base\n  url: oci://ghcr.io/windsorcli/base:v1.0.0\n")
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+
+		// When the writer is called
+		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the writer pulls core only, and the BOM lists base once
+		if len(pulled) != 1 {
+			t.Errorf("expected one pull of core, got %v", pulled)
+		}
+		if got := decodeBOM(t, data).refs(); len(got) != 2 {
+			t.Errorf("expected core and base, got %v", got)
+		}
+	})
+
+	t.Run("KeepsOneComponentForASourceThatASourceBOMListsUnderAnotherDigest", func(t *testing.T) {
+		// Given a blueprint that names core and base, and a core BOM that lists base with no digest
+		coreBOM, err := inventory.CycloneDX(inventory.SourceTree{Sources: []inventory.SourceTree{{
+			Name:      "base",
+			Entry:     inventory.Entry{Kind: inventory.KindBlueprint, Transport: inventory.TransportOCI, Reference: "ghcr.io/windsorcli/base", Version: "v1.0.0"},
+			Artifacts: []inventory.Entry{{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "quay.io/coreos/etcd", Version: "v3.7.2"}},
+		}}}, "core", "v0.9.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		coreDir, baseDir := t.TempDir(), t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": string(coreBOM)})
+		writeArtifactTar(t, baseDir, map[string]string{"metadata.yaml": "name: base\n"})
+		writeDigest(t, baseDir, baseDigestHex)
+		writeFile(t, baseDir, "kustomize/app/values.yaml", "image: quay.io/coreos/etcd:v3.7.2 # artifact: type=image\n")
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled))
+		blueprint := []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n- name: zbase\n  url: oci://ghcr.io/windsorcli/base:v1.0.0\n")
+
+		// When the writer is called
+		data, err := writer("app", "v1.0.0", nil, blueprint)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the BOM lists base once, with the digest of its pull, and core pulls that component
+		bom := decodeBOM(t, data)
+		var bases []testComponent
+		for _, c := range bom.Components {
+			if c.Name == "ghcr.io/windsorcli/base" {
+				bases = append(bases, c)
+			}
+		}
+		if len(bases) != 1 || len(bases[0].Hashes) != 1 || bases[0].Hashes[0].Content != baseDigestHex {
+			t.Fatalf("expected one base component with its digest, got %+v", bases)
+		}
+		if got, _ := bom.dependsOn(corePurl); !slices.Contains(got, bases[0].BOMRef) {
+			t.Errorf("expected core to pull base, got %v", got)
+		}
+		if got, _ := bom.dependsOn(bases[0].BOMRef); strings.Join(got, " ") != etcdPurl {
+			t.Errorf("expected base to pull etcd, got %v", got)
 		}
 	})
 

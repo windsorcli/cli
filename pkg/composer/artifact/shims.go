@@ -51,6 +51,7 @@ type Shims struct {
 	ParseReference    func(ref string, opts ...name.Option) (name.Reference, error)
 	RemoteImage       func(ref name.Reference, options ...remote.Option) (v1.Image, error)
 	ImageLayers       func(img v1.Image) ([]v1.Layer, error)
+	ImageDigest       func(img v1.Image) (v1.Hash, error)
 	LayerUncompressed func(layer v1.Layer) (io.ReadCloser, error)
 	AppendLayers      func(base v1.Image, layers ...v1.Layer) (v1.Image, error)
 	ConfigFile        func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error)
@@ -91,6 +92,7 @@ func NewShims() *Shims {
 			return remote.Image(ref, options...)
 		},
 		ImageLayers:       func(img v1.Image) ([]v1.Layer, error) { return img.Layers() },
+		ImageDigest:       func(img v1.Image) (v1.Hash, error) { return img.Digest() },
 		LayerUncompressed: func(layer v1.Layer) (io.ReadCloser, error) { return layer.Uncompressed() },
 		AppendLayers:      mutate.AppendLayers,
 		ConfigFile:        mutate.ConfigFile,

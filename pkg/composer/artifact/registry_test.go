@@ -1595,7 +1595,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then it should fail at remote image step
 		if err == nil {
@@ -1622,7 +1622,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 			}
 
 			// When downloadOCIArtifact is called
-			_, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+			_, _, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 			// Then it reads the mirror, and an http mirror is insecure
 			if parsed != "harbor.example.com/windsor/modules:v1.0.0" {
@@ -1648,7 +1648,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		mocks.Runtime.ConfigHandler = handler
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then it returns the registries error
 		if err == nil || !strings.Contains(err.Error(), "two mirrors") {
@@ -1665,7 +1665,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then it should return parse reference error
 		if err == nil {
@@ -1689,7 +1689,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then it should return remote image error
 		if err == nil {
@@ -1717,7 +1717,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then it should return image layers error
 		if err == nil {
@@ -1743,7 +1743,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then exactly one option (the keychain auth option) should be forwarded so private registries authenticate
 		if len(capturedOptions) != 1 {
@@ -1772,7 +1772,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
+		_, _, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
 
 		// Then RemoteImage should be called twice (keychain then anonymous)
 		if callCount != 2 {
@@ -1807,7 +1807,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
+		_, _, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
 
 		// Then the anonymous retry should fire on the diagnostic-only auth refusal
 		if callCount != 2 {
@@ -1836,7 +1836,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("ghcr.io", "private/repo", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("ghcr.io", "private/repo", "v1.0.0")
 
 		// Then the keychain error should be surfaced (it carries the real auth failure reason),
 		// not the anonymous-retry error
@@ -1866,7 +1866,7 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 
 		// When downloadOCIArtifact is called
-		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+		_, _, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
 
 		// Then no anonymous retry should happen
 		if callCount != 1 {

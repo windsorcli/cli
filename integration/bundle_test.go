@@ -32,9 +32,11 @@ type extractedBOM struct {
 	} `json:"dependencies"`
 }
 
-// Package URLs of the source tests.
+// Package URLs and digests of the source tests.
 const (
 	coreSourcePurl = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.1.0"
+	coreDigestHex  = "4444444444444444444444444444444444444444444444444444444444444444"
+	coreDigestPurl = "pkg:oci/core@sha256:" + coreDigestHex + "?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.1.0"
 	etcdImagePurl  = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
 )
 
@@ -266,6 +268,7 @@ func TestBundle_ListsTheArtifactsOfEachOCISource(t *testing.T) {
 		"metadata.yaml":              "name: core\nversion: v0.1.0\n",
 		"artifact-manifest.cdx.json": coreBOM,
 	})
+	writeProjectFile(t, dir, ".windsor/cache/oci/ghcr.io_windsorcli_core_v0.1.0/digest", "sha256:"+coreDigestHex)
 
 	outPath := filepath.Join(dir, "out.tar.gz")
 	if _, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "bundle-it:v1.0.0", "-o", outPath}, env); err != nil {
@@ -280,16 +283,20 @@ func TestBundle_ListsTheArtifactsOfEachOCISource(t *testing.T) {
 		}
 		got[c.BOMRef] = c
 	}
-	if core, ok := got[coreSourcePurl]; !ok || core.Type != "data" || core.Version != "v0.1.0" {
-		t.Errorf("expected a data component for core v0.1.0, got %+v", bom.Components)
+	core, ok := got[coreDigestPurl]
+	if !ok || core.Type != "data" || core.Version != "v0.1.0" {
+		t.Fatalf("expected a data component for core v0.1.0 with its digest, got %+v", bom.Components)
+	}
+	if len(core.Hashes) != 1 || core.Hashes[0].Content != coreDigestHex {
+		t.Errorf("expected the digest of the cached pull, got %+v", core.Hashes)
 	}
 	if _, ok := got[etcdImagePurl]; !ok {
 		t.Errorf("expected the etcd image of the core BOM, got %+v", bom.Components)
 	}
-	if deps := bom.dependsOn("bundle-it"); !slices.Contains(deps, coreSourcePurl) {
+	if deps := bom.dependsOn("bundle-it"); !slices.Contains(deps, coreDigestPurl) {
 		t.Errorf("expected the bundle to pull core, got %v", deps)
 	}
-	if deps := bom.dependsOn(coreSourcePurl); strings.Join(deps, " ") != etcdImagePurl {
+	if deps := bom.dependsOn(coreDigestPurl); strings.Join(deps, " ") != etcdImagePurl {
 		t.Errorf("expected core to pull etcd, got %v", deps)
 	}
 }

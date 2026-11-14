@@ -26,6 +26,9 @@ import (
 
 const artifactTarFilename = "artifact.tar"
 
+// digestFilename is the file in a cache directory that holds the manifest digest of the pulled artifact.
+const digestFilename = "digest"
+
 // =============================================================================
 // Public Methods
 // =============================================================================
@@ -108,7 +111,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 
 				cacheKey := FormatOCIRef(registry, repository, tag)
 
-				artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
+				artifactData, digest, err := a.downloadOCIArtifact(registry, repository, tag)
 				if err != nil {
 					return werror.Wrap(err, "failed to download OCI artifact %s", ref)
 				}
@@ -118,7 +121,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 					return werror.Wrap(err, "failed to get cache directory")
 				}
 
-				if err := a.extractArtifactToCache(artifactData, cacheDir); err != nil {
+				if err := a.extractArtifactToCache(artifactData, digest, cacheDir); err != nil {
 					return werror.Wrap(err, "failed to extract artifact")
 				}
 
@@ -170,6 +173,19 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// writeCachedDigest writes digest to the digest file in cacheDir.
+func (a *ArtifactBuilder) writeCachedDigest(cacheDir, digest string) error {
+	file, err := a.shims.Create(filepath.Join(cacheDir, digestFilename))
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write([]byte(digest)); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
 
 // validateOCIDiskCache checks that an extracted OCI artifact cache directory is complete and ready for use.
 // It verifies that the cache directory exists and contains a non-empty artifact.tar archive file.
@@ -291,10 +307,11 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 	return nil
 }
 
-// extractArtifactToCache extracts the artifact into extractionDir and keeps a copy of the archive as artifact.tar.
+// extractArtifactToCache extracts the artifact into extractionDir, keeps a copy of the archive as artifact.tar,
+// and writes digest, when it is not empty, to the digest file.
 // It extracts into extractionDir.tmp first, then renames that directory to extractionDir.
 // The rename prevents a cache entry that is not complete. On an error, it removes the temporary directory.
-func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extractionDir string) (err error) {
+func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, digest, extractionDir string) (err error) {
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
 
@@ -340,6 +357,13 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 	if closeErr := artifactTarFile.Close(); closeErr != nil {
 		err = werror.Wrap(closeErr, "failed to close artifact.tar file")
 		return
+	}
+
+	if digest != "" {
+		if err = a.writeCachedDigest(tmpExtractionDir, digest); err != nil {
+			err = werror.Wrap(err, "failed to write the digest file")
+			return
+		}
 	}
 
 	parentDir := filepath.Dir(extractionDir)

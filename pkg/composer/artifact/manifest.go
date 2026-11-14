@@ -1,7 +1,7 @@
 // The artifact manifest is the CycloneDX BOM that windsor bundle writes at the root of a blueprint artifact.
 // It lists each chart and image that an artifact tag names in the bundled files and in each oci:// source.
 // The artifact package scans the tags, and a BOMWriter from the composer encodes them.
-// ReadCachedBOM reads the manifest back from the cached archive of a pulled source.
+// ReadCachedBOM and ReadCachedDigest read the manifest and the digest of a pulled source from its cache.
 
 package artifact
 
@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/windsorcli/cli/internal/werror"
 )
 
@@ -73,4 +74,22 @@ func ReadCachedBOM(cacheDir string) ([]byte, error) {
 		}
 		return data, nil
 	}
+}
+
+// ReadCachedDigest returns the manifest digest of the artifact in the cache directory cacheDir.
+// It returns an empty digest when the cache holds no digest, as in a cache from an older CLI.
+// It returns an error when the digest file cannot be read or does not hold a valid digest.
+func ReadCachedDigest(cacheDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(cacheDir, digestFilename)) // #nosec G304 -- digest file in the OCI cache directory of a source
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", werror.Wrap(err, "failed to read the cached digest in %s", cacheDir)
+	}
+	hash, err := v1.NewHash(strings.TrimSpace(string(data)))
+	if err != nil {
+		return "", werror.Wrap(err, "failed to parse the cached digest in %s", cacheDir)
+	}
+	return hash.String(), nil
 }
