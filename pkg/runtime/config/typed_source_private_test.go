@@ -155,8 +155,8 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		{"PathsNotAnObject", map[string]string{"windsor.yaml": "version: v1alpha2\npaths: infra\n"}, []string{"windsor.yaml", `"paths"`}},
 		{"PathsUnknownKey", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  state: x\n"}, []string{"windsor.yaml", `"state"`}},
 		{"PathsValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  terraform: [a]\n"}, []string{"windsor.yaml", `"paths.terraform"`}},
-		{"ContextWindsorYaml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yaml": "platform: aws\n"}, []string{"contexts/prod/windsor.yaml", "windsor migrate"}},
-		{"ContextWindsorYml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yml": "platform: aws\n"}, []string{"contexts/prod/windsor.yml", "windsor migrate"}},
+		{"ContextWindsorYaml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yaml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yaml"), "windsor migrate"}},
+		{"ContextWindsorYml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yml"), "windsor migrate"}},
 	}
 	for _, tc := range rejections {
 		t.Run("Rejects"+tc.name, func(t *testing.T) {
