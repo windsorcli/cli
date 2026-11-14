@@ -233,3 +233,31 @@ func TestTypedSource_LoadContext(t *testing.T) {
 		}
 	})
 }
+
+func TestTypedSource_LoadRootEnvironment(t *testing.T) {
+	t.Run("ReturnsNilWhenTheRootFileIsMissing", func(t *testing.T) {
+		source := newTypedSource(NewShims())
+
+		got, err := source.LoadRootEnvironment(t.TempDir())
+
+		if err != nil || got != nil {
+			t.Errorf("expected nil and no error, got %v, %v", got, err)
+		}
+	})
+
+	t.Run("FailsWhenTheRootFileCannotBeRead", func(t *testing.T) {
+		shims := NewShims()
+		shims.ReadFile = func(string) ([]byte, error) { return nil, errors.New("read failed") }
+		projectRoot := t.TempDir()
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte("version: v1alpha2\n"), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		source := newTypedSource(shims)
+
+		_, err := source.LoadRootEnvironment(projectRoot)
+
+		if err == nil || !strings.Contains(err.Error(), "read failed") {
+			t.Errorf("expected the read error, got %v", err)
+		}
+	})
+}

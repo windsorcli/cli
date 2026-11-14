@@ -92,11 +92,15 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 
 // LoadRootEnvironment returns the environment map of a v1alpha2 root file as a config layer, in the
 // form {"environment": {...}}. It returns nil when the file is missing, is not v1alpha2, or has no
-// environment key. LoadRoot validates the file first, so this method does not validate it again.
+// environment key. A read error fails the call. LoadRoot validates the file first, so this method does not validate it again.
 func (s *typedSource) LoadRootEnvironment(projectRoot string) (map[string]any, error) {
-	fileData, err := s.shims.ReadFile(filepath.Join(projectRoot, "windsor.yaml"))
-	if err != nil {
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	if _, err := s.shims.Stat(rootConfigPath); err != nil {
 		return nil, nil
+	}
+	fileData, err := s.shims.ReadFile(rootConfigPath)
+	if err != nil {
+		return nil, werror.Wrap(err, "error reading root config file")
 	}
 	var root v1alpha2.Root
 	if err := s.shims.YamlUnmarshal(fileData, &root); err != nil {
