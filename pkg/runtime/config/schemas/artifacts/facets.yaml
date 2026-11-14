@@ -290,9 +290,10 @@ $defs:
         description: |
           How this component is merged into the blueprint. 'merge' (default)
           deep-merges with existing components matching the same Path and
-          Source; 'replace' overwrites; 'remove' deletes the matching
-          existing component's non-index fields. Remove operations are
-          always applied last.
+          Source; 'replace' overwrites; 'remove' deletes only the named
+          non-index fields from the matching component. It never deletes
+          the whole component. A merge with a higher ordinal can add a
+          removed field back. See [Composition order](composition-order.md#removals).
       ordinal:
         type: integer
         description: Per-component override of the facet's ordinal for merge precedence.
@@ -329,9 +330,10 @@ $defs:
         description: |
           How this kustomization is merged into the blueprint. 'merge'
           (default) deep-merges with existing kustomizations matching the
-          same Name; 'replace' overwrites; 'remove' deletes the matching
-          existing kustomization's non-index fields. Remove operations are
-          always applied last.
+          same Name; 'replace' overwrites; 'remove' deletes only the named
+          non-index fields from the matching kustomization. It never deletes
+          the whole kustomization. A merge with a higher ordinal can add a
+          removed field back. See [Composition order](composition-order.md#removals).
       ordinal:
         type: integer
         description: Per-kustomization override of the facet's ordinal for merge precedence.
