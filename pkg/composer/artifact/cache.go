@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"io"
 	"math"
 	"os"
@@ -247,9 +246,9 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 			return werror.Wrap(err, "invalid path in tar archive")
 		}
 
-		if !strings.HasPrefix(sanitizedPath, paths.TemplateDirName+"/") &&
-			!strings.HasPrefix(sanitizedPath, paths.KustomizeDirName+"/") &&
-			!strings.HasPrefix(sanitizedPath, paths.TerraformDirName+"/") &&
+		if !strings.HasPrefix(sanitizedPath, "_template/") &&
+			!strings.HasPrefix(sanitizedPath, "kustomize/") &&
+			!strings.HasPrefix(sanitizedPath, "terraform/") &&
 			sanitizedPath != "metadata.yaml" {
 			if header.Typeflag != tar.TypeDir {
 				if _, err := io.Copy(io.Discard, tarReader); err != nil {

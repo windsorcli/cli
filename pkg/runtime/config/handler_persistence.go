@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/werror"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // =============================================================================
@@ -106,13 +105,13 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 
 	hasLoadedFiles := false
 
-	resolver, err := c.loadResolver(projectRoot)
+	basePath, err := c.loadBasePath(projectRoot)
 	if err != nil {
 		return err
 	}
 
 	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
-		schemaPath := filepath.Join(resolver.TemplateDir(), "schema.yaml")
+		schemaPath := filepath.Join(basePath, "contexts", "_template", "schema.yaml")
 		if _, err := c.shims.Stat(schemaPath); err == nil {
 			if err := c.LoadSchema(schemaPath); err != nil {
 				return werror.Wrap(err, "error loading schema")
@@ -120,7 +119,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		}
 	}
 
-	rootValues, rootLoaded, err := c.typed.LoadRoot(resolver, contextName)
+	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -140,7 +139,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		c.data = c.deepMerge(c.data, rootValues)
 	}
 
-	contextValues, contextLoaded, err := c.typed.LoadContext(resolver, contextName)
+	contextValues, contextLoaded, err := c.typed.LoadContext(basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -159,7 +158,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		c.data = c.deepMerge(c.data, workstationValues)
 	}
 
-	valuesData, valuesLoaded, err := c.values.Load(resolver, contextName)
+	valuesData, valuesLoaded, err := c.values.Load(basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -190,26 +189,26 @@ func (c *configHandler) IsNewContext() (bool, error) {
 		return false, werror.Wrap(err, "error retrieving project root")
 	}
 	contextName := c.GetContext()
-	resolver, err := c.resolver(projectRoot)
+	basePath, err := c.basePath(projectRoot)
 	if err != nil {
 		return false, err
 	}
 
-	rootValues, _, err := c.typed.LoadRoot(resolver, contextName)
+	rootValues, _, err := c.typed.LoadRoot(projectRoot, basePath, contextName)
 	if err != nil {
 		return false, err
 	}
 	if rootValues != nil {
 		return false, nil
 	}
-	_, contextLoaded, err := c.typed.LoadContext(resolver, contextName)
+	_, contextLoaded, err := c.typed.LoadContext(basePath, contextName)
 	if err != nil {
 		return false, err
 	}
 	if contextLoaded {
 		return false, nil
 	}
-	_, valuesLoaded, err := c.values.Load(resolver, contextName)
+	_, valuesLoaded, err := c.values.Load(basePath, contextName)
 	if err != nil {
 		return false, err
 	}
@@ -241,7 +240,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	resolver, err := c.resolver(projectRoot)
+	basePath, err := c.basePath(projectRoot)
 	if err != nil {
 		return err
 	}
@@ -252,7 +251,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	}
 
 	wrote, err := c.values.Save(
-		resolver,
+		basePath,
 		c.GetContext(),
 		c.dataWithoutRootEnvironment(),
 		c.pendingOverrides,
@@ -327,43 +326,31 @@ func (c *configHandler) SaveWorkstationState() error {
 // Private Methods
 // =============================================================================
 
-// loadResolver reads the root file, validates its paths block, and stores the resolver for later
-// calls. It returns the resolver for projectRoot.
-func (c *configHandler) loadResolver(projectRoot string) (*paths.Resolver, error) {
-	resolver, err := paths.Load(projectRoot, c.pathShims())
+// loadBasePath reads the root file, validates paths.base, and stores the result for later calls.
+func (c *configHandler) loadBasePath(projectRoot string) (string, error) {
+	basePath, err := c.typed.LoadBasePath(projectRoot)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	c.storeResolver(projectRoot, resolver)
-	return resolver, nil
+	if c.base != nil {
+		c.base.mu.Lock()
+		c.base.root, c.base.path = projectRoot, basePath
+		c.base.mu.Unlock()
+	}
+	return basePath, nil
 }
 
-// resolver returns the stored resolver for projectRoot, and loads it when none is stored.
-func (c *configHandler) resolver(projectRoot string) (*paths.Resolver, error) {
-	if cache := c.projectPaths; cache != nil {
-		cache.mu.Lock()
-		stored, root := cache.resolver, cache.root
-		cache.mu.Unlock()
-		if stored != nil && root == projectRoot {
+// basePath returns the stored base directory of projectRoot, and loads it when none is stored.
+func (c *configHandler) basePath(projectRoot string) (string, error) {
+	if c.base != nil {
+		c.base.mu.Lock()
+		root, stored := c.base.root, c.base.path
+		c.base.mu.Unlock()
+		if stored != "" && root == projectRoot {
 			return stored, nil
 		}
 	}
-	return c.loadResolver(projectRoot)
-}
-
-// storeResolver keeps resolver as the resolver of projectRoot.
-func (c *configHandler) storeResolver(projectRoot string, resolver *paths.Resolver) {
-	if c.projectPaths == nil {
-		return
-	}
-	c.projectPaths.mu.Lock()
-	c.projectPaths.root, c.projectPaths.resolver = projectRoot, resolver
-	c.projectPaths.mu.Unlock()
-}
-
-// pathShims returns the shims of the paths package, built from the shims of the handler.
-func (c *configHandler) pathShims() *paths.Shims {
-	return &paths.Shims{Shims: c.shims.Shims, EvalSymlinks: filepath.EvalSymlinks}
+	return c.loadBasePath(projectRoot)
 }
 
 // getPersistencePolicyInput builds policy input for persistence ownership decisions.

@@ -6,11 +6,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // setCmd represents the set command group
@@ -53,12 +53,15 @@ windsor get context
 		if err != nil {
 			return werror.Wrap(err, "failed to get project root")
 		}
-		resolver, err := paths.Load(projectRoot, nil)
+
+		basePath, err := rt.ConfigHandler.GetBasePath()
 		if err != nil {
 			return err
 		}
-
-		contextDir := resolver.ContextDir(contextName)
+		if basePath == "" {
+			basePath = projectRoot
+		}
+		contextDir := filepath.Join(basePath, "contexts", contextName)
 		if _, err := os.Stat(contextDir); os.IsNotExist(err) {
 			return werror.New(fmt.Sprintf("context %q not found", contextName), fmt.Sprintf("Run windsor init %s to create it.", contextName), nil)
 		} else if err != nil {

@@ -242,7 +242,7 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 		return "terraform"
 	}
 	mocks.Runtime.ToolsManager = mockToolsManager
-	mockTerraformProvider := terraformRuntime.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mockToolsManager, mocks.Runtime.Evaluator, nil)
+	mockTerraformProvider := terraformRuntime.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mockToolsManager, mocks.Runtime.Evaluator)
 	mocks.Runtime.TerraformProvider = mockTerraformProvider
 	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager, mockTerraformProvider)
 	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv

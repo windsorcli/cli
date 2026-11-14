@@ -16,7 +16,6 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -31,7 +30,6 @@ type DefaultTerraformProvider struct {
 	shell         shell.Shell
 	toolsManager  tools.ToolsManager
 	evaluator     evaluator.ExpressionEvaluator
-	paths         *paths.Resolver
 	Shims         *Shims // Exported for testing
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
@@ -91,13 +89,12 @@ type TerraformProvider interface {
 // =============================================================================
 
 // NewTerraformProvider creates a new TerraformProvider instance and registers its helper functions with the evaluator.
-// A nil resolver gives the default project layout. Panics if configHandler, shell, toolsManager, or evaluator are nil.
+// Panics if configHandler, shell, toolsManager, or evaluator are nil.
 func NewTerraformProvider(
 	configHandler config.ConfigHandler,
 	shell shell.Shell,
 	toolsManager tools.ToolsManager,
 	evaluator evaluator.ExpressionEvaluator,
-	resolver *paths.Resolver,
 ) TerraformProvider {
 	if configHandler == nil {
 		panic("config handler is required")
@@ -117,7 +114,6 @@ func NewTerraformProvider(
 		shell:         shell,
 		toolsManager:  toolsManager,
 		evaluator:     evaluator,
-		paths:         resolver,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
 		warningWriter: os.Stderr,
@@ -155,15 +151,6 @@ func (p *DefaultTerraformProvider) FindRelativeProjectPath(directory ...string) 
 	}
 	if len(matches) == 0 {
 		return "", nil
-	}
-
-	if projectRoot, err := p.shell.GetProjectRoot(); err == nil {
-		resolver := p.projectPaths(projectRoot)
-		for _, dir := range []string{resolver.Terraform(), resolver.Contexts()} {
-			if rel, err := filepath.Rel(dir, currentPath); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-				return filepath.ToSlash(rel), nil
-			}
-		}
 	}
 
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
@@ -308,7 +295,7 @@ func (p *DefaultTerraformProvider) loadTerraformComponents() []blueprintv1alpha1
 			if useScratchPath {
 				component.FullPath = filepath.Join(windsorScratchPath, "terraform", componentID)
 			} else {
-				component.FullPath = filepath.Join(p.projectPaths(projectRoot).Terraform(), componentID)
+				component.FullPath = filepath.Join(p.basePath(projectRoot), "terraform", componentID)
 			}
 		}
 	}
@@ -316,13 +303,12 @@ func (p *DefaultTerraformProvider) loadTerraformComponents() []blueprintv1alpha1
 	return blueprint.TerraformComponents
 }
 
-// projectPaths returns the path resolver for projectRoot. It returns the default layout when the
-// provider has no resolver, or when its resolver belongs to another project root.
-func (p *DefaultTerraformProvider) projectPaths(projectRoot string) *paths.Resolver {
-	if p.paths != nil && p.paths.ProjectRoot() == projectRoot {
-		return p.paths
+// basePath returns the base directory of the project, or projectRoot when the config handler has none.
+func (p *DefaultTerraformProvider) basePath(projectRoot string) string {
+	if basePath, err := p.configHandler.GetBasePath(); err == nil && basePath != "" {
+		return basePath
 	}
-	return paths.Default(projectRoot)
+	return projectRoot
 }
 
 // resolveModulePath returns the absolute path of the Terraform module of component.
@@ -350,5 +336,5 @@ func (p *DefaultTerraformProvider) resolveModulePath(component *blueprintv1alpha
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(p.projectPaths(projectRoot).Terraform(), componentID), nil
+	return filepath.Join(p.basePath(projectRoot), "terraform", componentID), nil
 }

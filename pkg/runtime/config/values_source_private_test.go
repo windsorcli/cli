@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/runtime/paths"
-
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -21,7 +19,7 @@ func TestValuesSource_Load(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
 
-		values, found, err := source.Load(paths.Default(projectRoot), "missing-context")
+		values, found, err := source.Load(projectRoot, "missing-context")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -45,7 +43,7 @@ func TestValuesSource_Load(t *testing.T) {
 			t.Fatalf("Expected no error writing values.yaml, got %v", err)
 		}
 
-		values, found, err := source.Load(paths.Default(projectRoot), contextName)
+		values, found, err := source.Load(projectRoot, contextName)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -81,7 +79,7 @@ func TestValuesSource_Load(t *testing.T) {
 		oldStderr := os.Stderr
 		r, w, _ := os.Pipe()
 		os.Stderr = w
-		values, found, err := source.Load(paths.Default(projectRoot), contextName)
+		values, found, err := source.Load(projectRoot, contextName)
 		w.Close()
 		var buf strings.Builder
 		_, _ = io.Copy(&buf, r)
@@ -127,7 +125,7 @@ func TestValuesSource_Save(t *testing.T) {
 			"workstation": map[string]any{"runtime": "colima"},
 		}
 
-		if _, err := source.Save(paths.Default(projectRoot), contextName, data, nil, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -159,7 +157,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		data := map[string]any{"cluster": map[string]any{"driver": "talos"}}
-		wrote, err := source.Save(paths.Default(projectRoot), contextName, data, data, nil, false, persistencePolicyInput{IsDevMode: true})
+		wrote, err := source.Save(projectRoot, contextName, data, data, nil, false, persistencePolicyInput{IsDevMode: true})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -193,7 +191,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error patching a nested override, got %v", err)
 		}
 
@@ -231,7 +229,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -260,7 +258,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"gcp": map[string]any{"project_id": "new-project"}}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -289,7 +287,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"platform": "docker", "dns": map[string]any{"enabled": false}}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, overrides, overrides, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -321,7 +319,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"platform": "docker"}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, overrides, overrides, []string{"provider"}, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, []string{"provider"}, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -352,7 +350,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		data := map[string]any{"id": "abc123"}
-		wrote, err := source.Save(paths.Default(projectRoot), contextName, data, nil, nil, true, persistencePolicyInput{})
+		wrote, err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -384,7 +382,7 @@ func TestValuesSource_Save(t *testing.T) {
 
 		data := map[string]any{"id": "abc123", "gcp": map[string]any{"project_id": "p"}}
 		overrides := map[string]any{"id": "abc123"}
-		if _, err := source.Save(paths.Default(projectRoot), contextName, data, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, data, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected the write to fall back to the full config, got %v", err)
 		}
 

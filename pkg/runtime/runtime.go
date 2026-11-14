@@ -8,12 +8,12 @@ package runtime
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
@@ -35,13 +35,13 @@ type Runtime struct {
 	// ProjectRoot is the project root directory path
 	ProjectRoot string
 
-	// Paths resolves the terraform, kustomize, and contexts directories of the project
-	Paths *paths.Resolver
+	// BasePath is the directory that holds the terraform, kustomize, and contexts directories
+	BasePath string
 
-	// ConfigRoot is the config root directory (<contexts directory>/<contextName>)
+	// ConfigRoot is the config root directory (<base>/contexts/<contextName>)
 	ConfigRoot string
 
-	// TemplateRoot is the template directory (<contexts directory>/_template)
+	// TemplateRoot is the template directory (<base>/contexts/_template)
 	TemplateRoot string
 
 	// WindsorScratchPath is the windsor scratch directory (<projectRoot>/.windsor/contexts/<contextName>)
@@ -117,8 +117,8 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.ContextName != "" {
 			rt.ContextName = overrides.ContextName
 		}
-		if overrides.Paths != nil {
-			rt.Paths = overrides.Paths
+		if overrides.BasePath != "" {
+			rt.BasePath = overrides.BasePath
 		}
 		if overrides.ProjectRoot != "" {
 			rt.ProjectRoot = overrides.ProjectRoot
@@ -199,10 +199,6 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
 	}
 
-	if rt.Paths == nil || rt.Paths.ProjectRoot() != rt.ProjectRoot {
-		rt.Paths = loadPaths(rt.ConfigHandler, rt.ProjectRoot)
-	}
-
 	if rt.Shell == nil {
 		panic("shell is required")
 	}
@@ -217,6 +213,12 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		rt.aliases = make(map[string]string)
 	}
 
+	if rt.BasePath == "" {
+		if basePath, err := rt.ConfigHandler.GetBasePath(); err == nil {
+			rt.BasePath = basePath
+		}
+	}
+
 	contextName := rt.ConfigHandler.GetContext()
 	if rt.ContextName == "" {
 		rt.ContextName = contextName
@@ -226,10 +228,10 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 	}
 
 	if rt.ConfigRoot == "" {
-		rt.ConfigRoot = rt.Paths.ContextDir(rt.ContextName)
+		rt.ConfigRoot = filepath.Join(rt.Base(), "contexts", rt.ContextName)
 	}
 	if rt.TemplateRoot == "" {
-		rt.TemplateRoot = rt.Paths.TemplateDir()
+		rt.TemplateRoot = filepath.Join(rt.Base(), "contexts", "_template")
 	}
 
 	if rt.Evaluator == nil {
@@ -246,13 +248,23 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 // Public Methods
 // =============================================================================
 
-// ProjectPaths returns the path resolver of the project. When the runtime has none, or the resolver
-// belongs to another project root, it returns the default layout under ProjectRoot.
-func (rt *Runtime) ProjectPaths() *paths.Resolver {
-	if rt.Paths == nil || rt.Paths.ProjectRoot() != rt.ProjectRoot {
-		return paths.Default(rt.ProjectRoot)
+// Base returns the base directory of the project. It is ProjectRoot when the runtime has no
+// BasePath, or when BasePath is outside ProjectRoot.
+func (rt *Runtime) Base() string {
+	if rel, err := filepath.Rel(rt.ProjectRoot, rt.BasePath); rt.BasePath == "" || err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rt.ProjectRoot
 	}
-	return rt.Paths
+	return rt.BasePath
+}
+
+// BaseRel returns the base directory relative to ProjectRoot, with forward slashes. It is empty when
+// the base is ProjectRoot.
+func (rt *Runtime) BaseRel() string {
+	rel, err := filepath.Rel(rt.ProjectRoot, rt.Base())
+	if err != nil || rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel)
 }
 
 // InitializeComponents initializes all environment-related components required after setup.
@@ -263,7 +275,7 @@ func (rt *Runtime) InitializeComponents() error {
 	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
 		if rt.TerraformProvider == nil {
 			rt.initializeToolsManager()
-			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator, rt.ProjectPaths())
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
 		}
 	}
 	return nil
@@ -405,22 +417,4 @@ func (rt *Runtime) loadSecrets() error {
 		return nil
 	}
 	return rt.Resolver.LoadAll()
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// loadPaths returns the resolver of the config handler when it belongs to projectRoot. Otherwise it
-// reads the root file itself. It returns the default layout when no resolver is available. The
-// config handler reports an invalid paths block when it loads the config.
-func loadPaths(handler config.ConfigHandler, projectRoot string) *paths.Resolver {
-	if resolver, err := handler.GetProjectPaths(); err == nil && resolver != nil && resolver.ProjectRoot() == projectRoot {
-		return resolver
-	}
-	resolver, err := paths.Load(projectRoot, nil)
-	if err != nil {
-		return paths.Default(projectRoot)
-	}
-	return resolver
 }

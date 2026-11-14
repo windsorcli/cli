@@ -99,7 +99,7 @@ func (p *DefaultTerraformProvider) ensureBackendOverrideIgnored(directory string
 	if err != nil {
 		return nil
 	}
-	terraformRoot := p.projectPaths(projectRoot).Terraform()
+	terraformRoot := filepath.Join(p.basePath(projectRoot), "terraform")
 	rel, err := filepath.Rel(terraformRoot, directory)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil

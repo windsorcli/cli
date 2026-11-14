@@ -18,7 +18,6 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -171,33 +170,33 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 }
 
 // Bundle collects the project files for the artifact and adds the artifact manifest.
-// It reads the template, kustomize, and terraform directories through the project path resolver and
-// writes them at the fixed archive layout: _template/, kustomize/, and terraform/ at the archive root.
+// It reads contexts/_template, kustomize, and terraform under the base directory of the project and
+// writes them at the archive root as _template, kustomize, and terraform.
 // It does not copy the terraform files that shouldSkipTerraformFile excludes.
 func (a *ArtifactBuilder) Bundle() error {
-	resolver := a.runtime.ProjectPaths()
+	base := a.runtime.Base()
 	processors := []PathProcessor{
 		{
-			Pattern: resolver.TemplateDir(),
+			Pattern: filepath.Join(base, "contexts", "_template"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := paths.TemplateDirName + "/" + filepath.ToSlash(relPath)
+				artifactPath := "_template/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: resolver.Kustomize(),
+			Pattern: filepath.Join(base, "kustomize"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := paths.KustomizeDirName + "/" + filepath.ToSlash(relPath)
+				artifactPath := "kustomize/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: resolver.Terraform(),
+			Pattern: filepath.Join(base, "terraform"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
 				if a.shouldSkipTerraformFile(filepath.Base(relPath)) {
 					return nil
 				}
-				artifactPath := paths.TerraformDirName + "/" + filepath.ToSlash(relPath)
+				artifactPath := "terraform/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
@@ -240,7 +239,7 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 		return nil
 	}
 	var blueprint []byte
-	if info, ok := a.files[paths.TemplateDirName+"/blueprint.yaml"]; ok {
+	if info, ok := a.files["_template/blueprint.yaml"]; ok {
 		blueprint = info.Content
 	}
 	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags, blueprint)
@@ -381,7 +380,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		}
 	}
 
-	metadataFileInfo, hasMetadata := a.files[paths.TemplateDirName+"/metadata.yaml"]
+	metadataFileInfo, hasMetadata := a.files["_template/metadata.yaml"]
 	var input BlueprintMetadataInput
 
 	if hasMetadata {
@@ -490,7 +489,7 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	}
 
 	for path, fileInfo := range a.files {
-		if path == paths.TemplateDirName+"/metadata.yaml" {
+		if path == "_template/metadata.yaml" {
 			continue
 		}
 

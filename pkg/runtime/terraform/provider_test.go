@@ -86,7 +86,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		testEvaluator = evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
 	}
 
-	provider := terraform.NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator, nil)
+	provider := terraform.NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator)
 	concreteProvider := provider.(*terraform.DefaultTerraformProvider)
 
 	if options.BlueprintYAML != "" {

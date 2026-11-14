@@ -24,7 +24,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
@@ -62,7 +61,7 @@ type TestRunner struct {
 	projectRoot         string
 	baseShell           shell.Shell
 	baseProjectRoot     string
-	paths               *paths.Resolver
+	basePath            string
 	artifactBuilder     artifact.Artifact
 	DefaultBlueprintURL string
 	RunFunc             func(filter string) ([]TestResult, error)
@@ -81,15 +80,11 @@ type testCaseWithFile struct {
 // NewTestRunner creates a new TestRunner using the provided runtime and artifact builder.
 // It stores base dependencies for creating isolated runtime instances for each test case, ensuring test isolation.
 func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *TestRunner {
-	resolver := rt.Paths
-	if resolver == nil {
-		resolver = paths.Default(rt.ProjectRoot)
-	}
 	return &TestRunner{
-		paths:           resolver,
 		projectRoot:     rt.ProjectRoot,
 		baseShell:       rt.Shell,
 		baseProjectRoot: rt.ProjectRoot,
+		basePath:        rt.Base(),
 		artifactBuilder: artifactBuilder,
 		shims:           shims.NewShims(),
 	}
@@ -147,7 +142,7 @@ func (r *TestRunner) runTestCases(testCasesWithFiles []testCaseWithFile) ([]Test
 // that match the filter. An empty filter matches all test cases. It returns an error when discovery or
 // parsing fails. When it finds no test file, or no test case matches the filter, the error has a remediation hint.
 func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error) {
-	testsDir := filepath.Join(r.paths.TemplateDir(), "tests")
+	testsDir := filepath.Join(r.basePath, "contexts", "_template", "tests")
 	testFiles, err := r.discoverTestFiles(testsDir)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to discover test files")
@@ -188,14 +183,14 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			Shell:         r.baseShell,
 			ConfigHandler: freshConfigHandler,
 			ProjectRoot:   r.baseProjectRoot,
-			Paths:         r.paths,
+			BasePath:      r.basePath,
 			ContextName:   "test",
-			ConfigRoot:    r.paths.TemplateDir(),
-			TemplateRoot:  r.paths.TemplateDir(),
+			ConfigRoot:    filepath.Join(r.basePath, "contexts", "_template"),
+			TemplateRoot:  filepath.Join(r.basePath, "contexts", "_template"),
 		})
 
 		if rt.ConfigHandler != nil {
-			schemaPath := filepath.Join(r.paths.TemplateDir(), "schema.yaml")
+			schemaPath := filepath.Join(r.basePath, "contexts", "_template", "schema.yaml")
 			if err := rt.ConfigHandler.LoadSchema(schemaPath); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
 					return nil, werror.Wrap(err, "failed to load schema")
@@ -261,7 +256,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 		}
 		var initURLs []string
 		if defaultURL != "" && defaultURL != SkipDefaultBlueprintURL {
-			templateRoot := r.paths.TemplateDir()
+			templateRoot := filepath.Join(r.basePath, "contexts", "_template")
 			if _, err := r.shims.Stat(templateRoot); err == nil {
 				initURLs = nil
 			} else {

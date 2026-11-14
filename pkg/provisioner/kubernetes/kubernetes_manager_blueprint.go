@@ -88,7 +88,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 				return werror.Wrap(err, "failed to create ConfigMap for kustomization %s", kustomization.Name)
 			}
 		}
-		fluxKustomization := FluxKustomization(&kustomization, k.paths, namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
+		fluxKustomization := FluxKustomization(&kustomization, k.basePrefix, namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
 		fluxKustomization.Labels = k.ownershipLabels()
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
@@ -360,7 +360,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 			}
 		}
 
-		fluxKustomization := FluxKustomization(&kustomization, k.paths, namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
+		fluxKustomization := FluxKustomization(&kustomization, k.basePrefix, namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
 		fluxKustomization.Labels = k.ownershipLabels()
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{

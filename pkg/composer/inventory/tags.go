@@ -16,7 +16,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // =============================================================================
@@ -68,11 +67,11 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 	return entries, roots, notes, nil
 }
 
-// sourceRoots returns the project base directory, named for the blueprint, and the cache directory of each
+// sourceRoots returns the project root, named for the blueprint, and the cache directory of each
 // oci:// source. The local template source is the project itself. A source that is not oci://, or
 // whose cache directory is missing, gives a note.
 func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sourceRoot, []string, error) {
-	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.ProjectPaths().Base()}}
+	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.Base()}}
 	var notes []string
 	for _, source := range blueprint.Sources {
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {
@@ -200,7 +199,7 @@ func terraformRoot(blueprint *blueprintv1alpha1.Blueprint, source string) string
 			return declared.PathPrefix
 		}
 	}
-	return paths.TerraformDirName
+	return "terraform"
 }
 
 // tagEntry converts an artifact tag to an Entry. An image reference is normalized like any other

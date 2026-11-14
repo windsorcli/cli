@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
@@ -29,7 +28,7 @@ const expressionMarker = "${"
 
 // scopedWholeDirs are the directories of a source that the scoped scan always reads in full.
 // The kustomize/crds directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
-var scopedWholeDirs = []string{paths.ContextsDirName, paths.TemplateDirName, paths.KustomizeDirName + "/crds"}
+var scopedWholeDirs = []string{"contexts", "_template", "kustomize/crds"}
 
 // kustomizationFileNames are the names of a Kustomize root file.
 var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml", "Kustomization"}
@@ -129,7 +128,7 @@ func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error
 func (s *scopedScan) addKustomization(k KustomizationScope) error {
 	if strings.Contains(k.Dir, expressionMarker) {
 		s.notef("Kustomization %q has the path %q, which the CLI cannot resolve, so the scan reads the whole kustomize directory.", k.Name, k.Dir)
-		return s.addEveryKustomizeDir(paths.KustomizeDirName)
+		return s.addEveryKustomizeDir("kustomize")
 	}
 	dir := path.Clean(k.Dir)
 	exists, err := s.isDir(dir)

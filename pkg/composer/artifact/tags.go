@@ -13,8 +13,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // =============================================================================
@@ -44,9 +42,9 @@ var tagKeyValuePattern = regexp.MustCompile(`(\w+)=(\S+)`)
 // referrersPattern matches the referrers attribute of a tag body. It also matches an empty value.
 var referrersPattern = regexp.MustCompile(`(?:^|\s)referrers=(\S*)`)
 
-// tagRoots are the directories of a source root that the scan reads. The contexts directory holds
-// the facets and values files of a project. The _template directory holds them in a bundled source.
-var tagRoots = []string{paths.KustomizeDirName, paths.TerraformDirName, paths.ContextsDirName, paths.TemplateDirName}
+// tagRoots are the directories of a source that the scan reads. The contexts directory holds the
+// facets and values files of a project. The _template directory holds them in a bundled source.
+var tagRoots = []string{"kustomize", "terraform", "contexts", "_template"}
 
 // =============================================================================
 // Types

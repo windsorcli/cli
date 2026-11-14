@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
@@ -32,7 +31,7 @@ type MockConfigHandler struct {
 	SetContextFunc              func(context string) error
 	GetConfigRootFunc           func() (string, error)
 	GetWindsorScratchPathFunc   func() (string, error)
-	GetProjectPathsFunc         func() (*paths.Resolver, error)
+	GetBasePathFunc             func() (string, error)
 	CleanFunc                   func() error
 	GenerateContextIDFunc       func() error
 	IsNewContextFunc            func() (bool, error)
@@ -249,12 +248,12 @@ func (m *MockConfigHandler) GetConfigRoot() (string, error) {
 	return "mock-config-root", nil
 }
 
-// GetProjectPaths calls the mock GetProjectPathsFunc if set, otherwise returns no resolver
-func (m *MockConfigHandler) GetProjectPaths() (*paths.Resolver, error) {
-	if m.GetProjectPathsFunc != nil {
-		return m.GetProjectPathsFunc()
+// GetBasePath calls the mock GetBasePathFunc if set, otherwise returns an empty path
+func (m *MockConfigHandler) GetBasePath() (string, error) {
+	if m.GetBasePathFunc != nil {
+		return m.GetBasePathFunc()
 	}
-	return nil, nil
+	return "", nil
 }
 
 // GetWindsorScratchPath calls the mock GetWindsorScratchPathFunc if set, otherwise returns a reasonable default string

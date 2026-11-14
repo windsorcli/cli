@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -552,20 +553,51 @@ func TestLoadConfig_RootPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("GetProjectPathsReturnsTheResolverOfTheRootFile", func(t *testing.T) {
+	t.Run("GetBasePathReturnsTheBaseOfTheRootFile", func(t *testing.T) {
 		// Given a root file with paths.base
 		f := newFixture(t)
 		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
 
-		// When the project paths are read
-		resolver, err := f.handler.GetProjectPaths()
+		// When the base path is read
+		got, err := f.handler.GetBasePath()
 
-		// Then the resolver follows base
+		// Then it is the base directory under the project root
 		if err != nil {
-			t.Fatalf("GetProjectPaths: %v", err)
+			t.Fatalf("GetBasePath: %v", err)
 		}
-		if want := filepath.Join(f.root, "infra", "terraform"); resolver.Terraform() != want {
-			t.Errorf("got %q, want %q", resolver.Terraform(), want)
+		if want := filepath.Join(f.root, "infra"); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("GetBasePathIsTheProjectRootWithoutPaths", func(t *testing.T) {
+		// Given a root file with no paths block
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\n")
+
+		// When the base path is read
+		got, err := f.handler.GetBasePath()
+
+		// Then it is the project root
+		if err != nil || got != f.root {
+			t.Errorf("got %q, %v, want %q", got, err, f.root)
+		}
+	})
+
+	t.Run("RejectsABaseThatLinksOutsideTheProject", func(t *testing.T) {
+		// Given a base directory that is a symbolic link to a directory outside the project
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
+		if err := os.Symlink(t.TempDir(), filepath.Join(f.root, "infra")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+
+		// When config is loaded
+		err := f.handler.LoadConfig()
+
+		// Then the load fails and names the link
+		if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+			t.Fatalf("expected a symbolic link error, got %v", err)
 		}
 	})
 
@@ -589,17 +621,29 @@ func TestLoadConfig_RootPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("RejectsAnInvalidPathsBlock", func(t *testing.T) {
-		// Given a root file whose paths block goes up a directory
-		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: ../up\n")
+	t.Run("RejectsAnInvalidBase", func(t *testing.T) {
+		for name, base := range map[string]string{
+			"ParentElement": "../up",
+			"MidPathParent": "a/../../b",
+			"Absolute":      "/abs",
+			"InsideWindsor": ".windsor/infra",
+			"WindsorItself": ".windsor",
+			"ProjectRoot":   ".",
+			"CleansToRoot":  "a/..",
+		} {
+			t.Run(name, func(t *testing.T) {
+				// Given a root file with an invalid base
+				f := newFixture(t)
+				f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: "+base+"\n")
 
-		// When config is loaded
-		err := f.handler.LoadConfig()
+				// When config is loaded
+				err := f.handler.LoadConfig()
 
-		// Then the load fails and names the key
-		if err == nil || !strings.Contains(err.Error(), "paths.base") {
-			t.Fatalf("expected an error that names paths.base, got %v", err)
+				// Then the load fails and names the key
+				if err == nil || !strings.Contains(err.Error(), "paths.base") {
+					t.Fatalf("expected an error that names paths.base, got %v", err)
+				}
+			})
 		}
 	})
 

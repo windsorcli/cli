@@ -141,14 +141,12 @@ What stays fixed:
   so it moves with `base` and has no key of its own.
 - The name `values.yaml` and the `contexts/<name>` layout under `base`.
 
-One resolver owns every project directory. The runtime builds it from the root file once per
-command, and exposes `Base()`, `Terraform()`, `Kustomize()`, `Contexts()`, `ContextDir(name)`, and
-`TemplateDir()`, each returning an absolute path. `Terraform()`, `Kustomize()`, and `Contexts()`
-return `base` joined with their fixed name. No other package builds these paths. A test
-MUST fail when a `filepath.Join` call outside the resolver uses one of the three literals. The
-same test covers the string constants in `composer/artifact`.
+The config handler resolves `base` to one absolute path, and the runtime exposes it as `BasePath`.
+Every code path that reads `terraform`, `kustomize`, or `contexts` joins that name to the base
+path, and no path joins them to the project root. A test MUST fail when a `filepath.Join` call
+starts a `terraform`, `kustomize`, or `contexts` path at the project root.
 
-`windsor bundle` reads the sources through the resolver and writes the standard layout. The
+`windsor bundle` reads the sources under the base path and writes the standard layout. The
 archive layout does not depend on the project paths, so every consumer of an artifact reads one
 layout:
 
@@ -245,7 +243,7 @@ needs. After that, a v1alpha1 root file fails the load with the message from poi
    v1alpha2 writes in `EnsureRoot` and `EnsureProjectAnchor`.
 2. Root `environment`, and the move of `terraform.driver` to the merged config.
 3. `windsor migrate` and the load notice. This step is independent of step 2.
-4. Root `paths` and the resolver, alone. The `Paths` type in `api/config/v1alpha2/root.go` gains
+4. Root `paths.base`, alone. The `Paths` type in `api/config/v1alpha2/root.go` gains
    `Base string` with `yaml:"base,omitempty"` in this step, with the rules. Step 1 does not add it.
 
 Each step ships with unit tests and, for `windsor migrate` and the `paths` keys, integration
@@ -260,6 +258,8 @@ tests.
   directory would break the shared `terraform/` and `kustomize/` sources.
 - **Let `paths` move `.windsor/`.** Rejected: the state directory needs one known location, and
   nothing a user edits lives there.
+- **A resolver type with a method for each directory.** Rejected: every caller needs only the base
+  path, and the directory names are fixed.
 - **Per-kind keys for `terraform`, `kustomize`, and `contexts`.** Rejected for v0.10.0: the case
   that users hit is one directory that holds the source tree, and per-kind keys add overlap rules
   and a larger test surface for a legacy-layout case that nobody has asked for. Other tools

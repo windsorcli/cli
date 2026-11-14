@@ -18,7 +18,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -38,7 +37,7 @@ type Composer struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	projectRoot   string
-	paths         *paths.Resolver
+	basePath      string
 	configRoot    string
 	templateRoot  string
 	shims         *Shims
@@ -77,7 +76,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		projectRoot:   rt.ProjectRoot,
-		paths:         rt.ProjectPaths(),
+		basePath:      rt.Base(),
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
 		shims:         NewShims(),
@@ -245,7 +244,7 @@ func (r *Composer) writeLocalGitignores() error {
 		return werror.Wrap(err, "failed to stat .volumes")
 	}
 
-	contextsDir := r.paths.Contexts()
+	contextsDir := filepath.Join(r.basePath, "contexts")
 	entries, err := r.shims.ReadDir(contextsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -13,7 +13,6 @@ import (
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -57,7 +56,7 @@ type ConfigHandler interface {
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
 	GetWindsorScratchPath() (string, error)
-	GetProjectPaths() (*paths.Resolver, error)
+	GetBasePath() (string, error)
 	Clean() error
 	IsLoaded() bool
 	GenerateContextID() error
@@ -104,8 +103,8 @@ type configHandler struct {
 	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
 	resolvedContext *contextCache
 
-	// projectPaths memoizes the path resolver of the project root; see resolver.
-	projectPaths *pathsCache
+	// base memoizes the base directory of the project; see GetBasePath.
+	base *baseCache
 
 	// stringSets keeps the original string of each value Set converted; see reconvertStringSets.
 	stringSets map[string]stringSet
@@ -127,12 +126,12 @@ type contextCache struct {
 	value    string
 }
 
-// pathsCache memoizes the path resolver of one project root. It is a pointer so a copy of the
-// handler shares the resolver that the original loaded.
-type pathsCache struct {
-	mu       sync.Mutex
-	root     string
-	resolver *paths.Resolver
+// baseCache memoizes the base directory of one project root. It is a pointer so a copy of the
+// handler shares the value that the original loaded.
+type baseCache struct {
+	mu   sync.Mutex
+	root string
+	path string
 }
 
 // =============================================================================
@@ -150,7 +149,7 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 		shims:           NewShims(),
 		data:            make(map[string]any),
 		resolvedContext: &contextCache{},
-		projectPaths:    &pathsCache{},
+		base:            &baseCache{},
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -326,21 +325,21 @@ func (c *configHandler) GetConfigRoot() (string, error) {
 		return "", err
 	}
 
-	resolver, err := c.resolver(projectRoot)
+	basePath, err := c.basePath(projectRoot)
 	if err != nil {
 		return "", err
 	}
-	return resolver.ContextDir(context), nil
+	return filepath.Join(basePath, contextDirName, context), nil
 }
 
-// GetProjectPaths returns the path resolver of the project root. The first call reads and validates
-// the root file, and later calls return the stored resolver.
-func (c *configHandler) GetProjectPaths() (*paths.Resolver, error) {
+// GetBasePath returns the absolute base directory of the project: the project root, or paths.base of
+// the root file. The first call reads and validates the root file, and later calls return the stored path.
+func (c *configHandler) GetBasePath() (string, error) {
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return c.resolver(projectRoot)
+	return c.basePath(projectRoot)
 }
 
 // GetWindsorScratchPath retrieves the windsor scratch directory path based on the current context

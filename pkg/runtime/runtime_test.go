@@ -163,20 +163,21 @@ func (m *MockToolsManager) GetTerraformCommand() string {
 // =============================================================================
 
 func TestRuntime_NewRuntime(t *testing.T) {
-	t.Run("BuildsThePathResolverFromTheRootFile", func(t *testing.T) {
+	t.Run("TakesTheBasePathFromTheConfigHandler", func(t *testing.T) {
 		// Given a project whose root file sets paths.base
 		root := t.TempDir()
 		if err := os.WriteFile(filepath.Join(root, "windsor.yaml"), []byte("version: v1alpha2\npaths:\n  base: infra\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		mocks := setupRuntimeMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBasePathFunc = func() (string, error) { return filepath.Join(root, "infra"), nil }
 
 		// When the runtime is created for that root
 		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, ProjectRoot: root, ContextName: "dev"})
 
-		// Then the resolver and the context roots follow the paths block
-		if got, want := rt.ProjectPaths().Terraform(), filepath.Join(root, "infra", "terraform"); got != want {
-			t.Errorf("Terraform: got %q, want %q", got, want)
+		// Then the base path and the context roots follow the paths block
+		if got, want := rt.Base(), filepath.Join(root, "infra"); got != want {
+			t.Errorf("Base: got %q, want %q", got, want)
 		}
 		if got, want := rt.ConfigRoot, filepath.Join(root, "infra", "contexts", "dev"); got != want {
 			t.Errorf("ConfigRoot: got %q, want %q", got, want)
@@ -184,22 +185,21 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		if got, want := rt.TemplateRoot, filepath.Join(root, "infra", "contexts", "_template"); got != want {
 			t.Errorf("TemplateRoot: got %q, want %q", got, want)
 		}
+		if got := rt.BaseRel(); got != "infra" {
+			t.Errorf("BaseRel: got %q, want infra", got)
+		}
 	})
 
-	t.Run("FallsBackToTheDefaultLayoutOnAnInvalidPathsBlock", func(t *testing.T) {
-		// Given a root file with an invalid paths block
-		root := t.TempDir()
-		if err := os.WriteFile(filepath.Join(root, "windsor.yaml"), []byte("version: v1alpha2\npaths:\n  base: ../up\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+	t.Run("BaseIsTheProjectRootWithoutABasePath", func(t *testing.T) {
+		// Given a runtime whose config handler has no base path
 		mocks := setupRuntimeMocks(t)
 
 		// When the runtime is created
-		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, ProjectRoot: root, ContextName: "dev"})
+		rt := mocks.Runtime
 
-		// Then the runtime holds the default layout, and the config handler reports the error on load
-		if got, want := rt.ProjectPaths().Contexts(), filepath.Join(root, "contexts"); got != want {
-			t.Errorf("Contexts: got %q, want %q", got, want)
+		// Then the base is the project root and the relative base is empty
+		if rt.Base() != rt.ProjectRoot || rt.BaseRel() != "" {
+			t.Errorf("got Base %q and BaseRel %q", rt.Base(), rt.BaseRel())
 		}
 	})
 

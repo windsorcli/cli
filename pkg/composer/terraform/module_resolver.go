@@ -114,13 +114,6 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 // Private Methods
 // =============================================================================
 
-// isProjectSource reports whether source is an absolute path under the template directory or the
-// terraform directory of the project.
-func (h *BaseModuleResolver) isProjectSource(source string) bool {
-	resolver := h.runtime.ProjectPaths()
-	return filepath.IsAbs(source) && (resolver.IsUnderTemplate(source) || resolver.IsUnderTerraform(source))
-}
-
 // generateComponentTfvars writes the tfvars file for one component at
 // .windsor/contexts/<context>/terraform/<componentID>/terraform.tfvars, for local and remote components.
 // It removes the old .tfvars files in that directory first, and reads the variables from the module directory.
@@ -143,14 +136,14 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 }
 
 // findModulePathForComponent returns the module directory for a terraform component.
-// For a template source (an absolute path under the template or terraform directory), it returns the source.
+// For a template source (an absolute path under contexts/_template or terraform/), it returns the source.
 // For a component with a name or a source, it returns the shim at .windsor/contexts/<context>/terraform/<componentID>.
 // For a local component without a name, it returns terraform/<path>.
 // It returns an error if the directory does not exist. A missing local module error has a remediation hint.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	componentID := component.GetID()
 
-	if h.isProjectSource(component.Source) {
+	if filepath.IsAbs(component.Source) && (strings.Contains(component.Source, filepath.Join("contexts", "_template")) || strings.HasPrefix(component.Source, filepath.Join(h.runtime.Base(), "terraform"))) {
 		modulePath := component.Source
 
 		if _, err := h.shims.Stat(modulePath); err != nil {
@@ -164,7 +157,7 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 	if useScratchPath {
 		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID)
 	} else {
-		modulePath = filepath.Join(h.runtime.ProjectPaths().Terraform(), componentID)
+		modulePath = filepath.Join(h.runtime.Base(), "terraform", componentID)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {

@@ -18,7 +18,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/paths"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -104,7 +103,7 @@ type BaseKubernetesManager struct {
 
 	client        client.KubernetesClient
 	configHandler config.ConfigHandler
-	paths         *paths.Resolver
+	basePrefix    string
 }
 
 // =============================================================================
@@ -154,10 +153,10 @@ func DefaultTiming() Timing {
 // Public Methods
 // =============================================================================
 
-// SetPaths sets the path resolver that maps the kustomize path of the project's own git source.
-// With no resolver, the manager writes the kustomize/ path as the blueprint names it.
-func (k *BaseKubernetesManager) SetPaths(resolver *paths.Resolver) {
-	k.paths = resolver
+// SetBasePrefix sets the base directory, relative to the project root, that goes in front of the
+// kustomize path of the project's own git source. With no prefix, the manager writes the path as the blueprint names it.
+func (k *BaseKubernetesManager) SetBasePrefix(basePrefix string) {
+	k.basePrefix = basePrefix
 }
 
 // CreateNamespace creates a new namespace
