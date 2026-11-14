@@ -198,6 +198,10 @@ When the CLI loads a root file at `version: v1alpha1` (or with no `version`), or
 file and says to run `windsor migrate`. A command that the shell hook runs on every prompt prints
 the notice at most once per shell session.
 
+`windsor init` on a project that has v1alpha1 files stops before it writes anything. It prints the
+same file list and says to run `windsor migrate` first. The migration is not an `init` flag:
+`init` works on one context, and the migration is project-wide.
+
 The CLI reads v1alpha1 files, and converts them, in v0.10.x and v0.11.x. v0.12.0 removes the
 read path, the `provider` mapping in the loader, and the `api/v1alpha1` types the conversion
 needs. After that, a v1alpha1 root file fails the load with the message from point 1.
@@ -248,6 +252,9 @@ tests.
   nothing a user edits lives there.
 - **A key for the template directory.** Rejected: the template belongs with the contexts, and a
   second key allows a split layout with no use.
+- **Name the command `windsor init --migrate`.** Rejected: `init` takes a context argument and
+  scaffolds one context, while the migration is project-wide and deletes files. `init` points to
+  `windsor migrate` instead.
 - **Name the command `windsor upgrade --config`.** Rejected: `upgrade` moves a blueprint between
   versions, and a config conversion has different inputs and failure modes.
 - **Last write wins on a conflict.** Rejected: the migration could silently discard a value that
