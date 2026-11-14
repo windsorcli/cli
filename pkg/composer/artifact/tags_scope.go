@@ -27,6 +27,10 @@ import (
 // expressionMarker starts a blueprint expression. A path or a component name that holds it is not resolved.
 const expressionMarker = "${"
 
+// archiveWholeDirs are the directories of a bundle that the scoped scan always reads in full.
+// The kustomize/crds directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
+var archiveWholeDirs = []string{paths.ContextsDirName, paths.TemplateDirName, paths.KustomizeDirName + "/crds"}
+
 // kustomizationFileNames are the names of a Kustomize root file.
 var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml", "Kustomization"}
 
@@ -35,8 +39,10 @@ var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml",
 // =============================================================================
 
 // TagScope lists the paths of one source that a composed blueprint uses.
+// A zero WholeDirs and KustomizeDir mean the directories of a bundle.
 type TagScope struct {
-	Base           string
+	WholeDirs      []string
+	KustomizeDir   string
 	Kustomizations []KustomizationScope
 	Terraform      []TerraformScope
 }
@@ -96,8 +102,15 @@ type scopedScan struct {
 // unless an entry reaches it. A name that holds an expression widens the scan and gives a note. A
 // path that the source does not hold gives a note.
 func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error) {
-	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: path.Join(scope.Base, paths.KustomizeDirName)}
-	for _, dir := range wholeDirs(scope.Base) {
+	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: scope.KustomizeDir}
+	if scan.kustomizeDir == "" {
+		scan.kustomizeDir = paths.KustomizeDirName
+	}
+	wholeDirs := scope.WholeDirs
+	if wholeDirs == nil {
+		wholeDirs = archiveWholeDirs
+	}
+	for _, dir := range wholeDirs {
 		if err := scan.addTree(dir, noBoundary); err != nil {
 			return nil, nil, err
 		}

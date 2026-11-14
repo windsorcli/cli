@@ -102,8 +102,8 @@ func TestScanTagsDirIn(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// When the project base scans the root
-		tags, err := ScanTagsDirIn(root, ProjectBase(resolver))
+		// When a scan of the project directories runs the root
+		tags, err := ScanTagsDirIn(root, []string{resolver.RelSlash(resolver.Kustomize())})
 
 		// Then the tag is found with a root-relative file path
 		if err != nil || len(tags) != 1 || tags[0].File != "infra/kustomize/app/values.yaml" {
@@ -116,7 +116,7 @@ func TestScanTagsDirIn(t *testing.T) {
 		root := t.TempDir()
 		writeTree(t, root, map[string]string{"infra/kustomize/app/values.yaml": tag})
 
-		// When an empty base scans the root
+		// When the bundle directories scan the root
 		tags, err := ScanTagsDir(root)
 
 		// Then it finds nothing, because a consumed source has the standard layout
@@ -139,7 +139,7 @@ func TestScanTagsScoped_ProjectLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		scope := TagScope{
-			Base:           ProjectBase(resolver),
+			KustomizeDir:   resolver.RelSlash(resolver.Kustomize()),
 			Kustomizations: []KustomizationScope{{Name: "app", Dir: resolver.RebaseKustomize("kustomize/app")}},
 		}
 
