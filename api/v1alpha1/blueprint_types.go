@@ -340,8 +340,7 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 // BlueprintPatch represents a patch in the blueprint format.
 // This is converted to kustomize.Patch during processing.
 // Supports both blueprint format (Path) and Flux format (Patch + Target).
-// The blueprint loader reads the file at Path into Patch. It takes Target from a JSON 6902 file when Target is unset.
-// The loader then sets Path relative to the source root, so a remove entry matches the same file by Path.
+// The blueprint loader reads the file at Path into Patch.
 type BlueprintPatch struct {
 	// Path to the patch file, relative to the directory of the file that declares the patch.
 	Path string `yaml:"path,omitempty"`

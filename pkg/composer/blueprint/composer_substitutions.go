@@ -257,7 +257,7 @@ func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*bluepr
 	return tierMap
 }
 
-// parsePatch parses a patch file and returns a BlueprintPatch. See parsePatchData for the rules.
+// parsePatch parses a patch file with parsePatchData.
 func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprintv1alpha1.BlueprintPatch, error) {
 	return parsePatchData(c.shims, data, path)
 }
@@ -322,10 +322,8 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 // Helpers
 // =============================================================================
 
-// parsePatchData parses a patch file and returns a BlueprintPatch. It detects whether the patch is
-// a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
-// For JSON 6902 patches, it extracts the target selector from the resource metadata.
-// Returns nil if the patch data is empty or whitespace-only. The loader and the composer share it.
+// parsePatchData parses a strategic merge or JSON 6902 patch file. A JSON 6902 file gives its target
+// from its kind and metadata. It returns nil for an empty file.
 func parsePatchData(shims *Shims, data []byte, path string) (*blueprintv1alpha1.BlueprintPatch, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil

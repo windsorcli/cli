@@ -551,8 +551,7 @@ func (l *BaseBlueprintLoader) collectTemplateData(dir string) error {
 	})
 }
 
-// addFacet sets the facet's Path and default Ordinal, inlines its patch files, and adds it to the
-// loader's facets. The rootDir is the directory of the source that holds the facet.
+// addFacet sets the facet's Path and default Ordinal, inlines its patch files, and stores the facet.
 func (l *BaseBlueprintLoader) addFacet(facet blueprintv1alpha1.Facet, path, rootDir string) error {
 	facet.Path = path
 	if facet.Ordinal == nil {
@@ -566,10 +565,8 @@ func (l *BaseBlueprintLoader) addFacet(facet blueprintv1alpha1.Facet, path, root
 	return nil
 }
 
-// inlineFacetPatches inlines the patch files of the facet's kustomize: and flux: entries. A path
-// resolves relative to the directory of the facet file, the same as file() and jsonnet(). The
-// rootDir is the source directory, and a resolved path must stay inside it. For an entry with the
-// remove strategy, Windsor resolves each path but does not read the file. See inlinePatchFiles.
+// inlineFacetPatches inlines the patch files of the facet, relative to the facet file. Remove entries
+// get resolved paths only.
 func (l *BaseBlueprintLoader) inlineFacetPatches(facet *blueprintv1alpha1.Facet, rootDir string) error {
 	baseDir := filepath.Dir(facet.Path)
 	for i := range facet.Kustomizations {
@@ -587,8 +584,7 @@ func (l *BaseBlueprintLoader) inlineFacetPatches(facet *blueprintv1alpha1.Facet,
 	return nil
 }
 
-// inlineFluxSystemPatches inlines the patch files of the system's install tier and of each
-// resources variant. See inlinePatchFiles for baseDir, rootDir, and resolveOnly.
+// inlineFluxSystemPatches inlines the patch files of the system's install and resources tiers.
 func (l *BaseBlueprintLoader) inlineFluxSystemPatches(sys *blueprintv1alpha1.FluxSystem, baseDir, rootDir string, resolveOnly bool) error {
 	if sys.Install != nil {
 		if err := l.inlinePatchFiles(sys.Install.Patches, baseDir, rootDir, resolveOnly); err != nil {
@@ -603,16 +599,8 @@ func (l *BaseBlueprintLoader) inlineFluxSystemPatches(sys *blueprintv1alpha1.Flu
 	return nil
 }
 
-// inlinePatchFiles processes each patch that has a path and no inline content. It resolves the
-// path against baseDir, and sets Path to the result relative to rootDir. Two entries in one source
-// that name the same file thus have the same Path, so a remove entry can match by Path. When
-// resolveOnly is false, it also reads the file and parses it with parsePatchData. A strategic merge
-// file and a JSON 6902 file both work, and a declared target wins over the target in the file.
-// The function returns an error when:
-//   - an entry that is not resolveOnly sets both a path and inline content.
-//   - the path is absolute, or resolves to a location outside rootDir.
-//   - the file does not exist or cannot be read.
-//   - the file is not valid YAML, holds no patch, or is a JSON 6902 patch with no target.
+// inlinePatchFiles sets each patch Path relative to rootDir, so remove entries match by Path. Unless
+// resolveOnly is set, it reads each file into Patch. A declared target wins over the file target.
 func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.BlueprintPatch, baseDir, rootDir string, resolveOnly bool) error {
 	for i := range patches {
 		if patches[i].Path == "" {
@@ -652,13 +640,7 @@ func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.Bluep
 	return nil
 }
 
-// parsePatchFile parses the content of a patch file. The target is the target that the entry
-// declares, or nil. The file can take one of these forms:
-//   - a list of JSON 6902 operations. The entry must declare a target.
-//   - a patches: list of JSON 6902 operations with no kind. The entry must declare a target.
-//   - a JSON 6902 patch with kind and metadata, or a strategic merge patch. See parsePatchData.
-//
-// It returns an error when the file is not valid YAML, holds no patch, or has no target.
+// parsePatchFile parses a patch file. A JSON 6902 file with no kind needs the declared target.
 func (l *BaseBlueprintLoader) parsePatchFile(data []byte, shownPath string, target *kustomize.Selector) (*blueprintv1alpha1.BlueprintPatch, error) {
 	var doc any
 	if err := l.shims.YamlUnmarshal(data, &doc); err != nil {
@@ -726,10 +708,8 @@ func projectRelativePath(rt *runtime.Runtime, path string) string {
 
 var _ BlueprintLoader = (*BaseBlueprintLoader)(nil)
 
-// resolvePatchPath resolves path relative to baseDir. It returns the full location of the patch
-// file, and the location relative to rootDir with forward slashes. It returns an error when path
-// is absolute, or when the result is outside rootDir. This stops a blueprint source from reading
-// files outside its own directory.
+// resolvePatchPath returns the full and the rootDir-relative location of path. It rejects a path
+// that is absolute or outside rootDir.
 func resolvePatchPath(path, baseDir, rootDir string) (string, string, error) {
 	if filepath.IsAbs(path) {
 		return "", "", werror.New(fmt.Sprintf("Patch path %q is absolute", path),

@@ -347,9 +347,7 @@ func toFluxHealthChecks(refs []HealthCheckRef) []meta.NamespacedObjectKindRefere
 	return converted
 }
 
-// toFluxPatches converts blueprint patches to Flux patches. It copies only the inline content and
-// the target. The blueprint loader reads each path file into the inline content before this step.
-// It drops a patch that has no inline content, because Flux cannot apply an empty patch.
+// toFluxPatches converts blueprint patches to Flux patches. It drops a patch with no inline content.
 func toFluxPatches(blueprintPatches []BlueprintPatch) []kustomize.Patch {
 	patches := make([]kustomize.Patch, 0, len(blueprintPatches))
 	for _, p := range blueprintPatches {
