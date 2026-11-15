@@ -347,13 +347,12 @@ func toFluxHealthChecks(refs []HealthCheckRef) []meta.NamespacedObjectKindRefere
 	return converted
 }
 
-// toFluxPatches converts blueprint patches to Flux patches. It drops a patch that has neither
-// inline content nor a path.
+// toFluxPatches converts blueprint patches to Flux patches. It drops a patch with no inline content.
 func toFluxPatches(blueprintPatches []BlueprintPatch) []kustomize.Patch {
 	patches := make([]kustomize.Patch, 0, len(blueprintPatches))
 	for _, p := range blueprintPatches {
 		patchContent := p.Patch
-		if patchContent == "" && p.Path == "" {
+		if patchContent == "" {
 			continue
 		}
 		var target *kustomize.Selector

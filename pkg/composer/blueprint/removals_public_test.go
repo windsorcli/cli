@@ -69,22 +69,27 @@ func TestLoadBlueprint_RemovalsAcrossSources(t *testing.T) {
 	})
 
 	t.Run("RemovesPatchesByPathThatASourceContributes", func(t *testing.T) {
-		// Given a core facet with two patches, and a template facet that removes one patch by path
+		// Given a core facet with two patch files, and a template facet that removes one patch by path
 		f := newFixture(t)
 		f.withCoreSource(t)
-		f.publishCore(t, "", map[string]string{"web": "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/a.yaml\n  - path: patches/b.yaml\n"})
+		f.publish(t, coreURL, map[string]string{
+			"_template/blueprint.yaml":        blueprintHeader + "metadata:\n  name: core\n",
+			"_template/facets/web.yaml":       facetHeader + "metadata:\n  name: web\nkustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/a.yaml\n  - path: patches/b.yaml\n",
+			"_template/facets/patches/a.yaml": "kind: ConfigMap\nmetadata:\n  name: a\n",
+			"_template/facets/patches/b.yaml": "kind: ConfigMap\nmetadata:\n  name: b\n",
+		})
 		f.facet(t, "consumer", "kustomize:\n- name: web\n  strategy: remove\n  patches:\n  - path: patches/a.yaml\n")
 
 		// When the blueprint is loaded
 		bp := f.mustLoad(t).Generate()
 
-		// Then only the other patch remains
+		// Then only the other patch remains, with its path relative to the source root
 		k := kustomization(bp, "web")
 		if k == nil {
 			t.Fatal("expected kustomization web")
 		}
-		if got := patchPaths(k); !slices.Equal(got, []string{"patches/b.yaml"}) {
-			t.Errorf("expected patches [patches/b.yaml], got %v", got)
+		if got := patchPaths(k); !slices.Equal(got, []string{"facets/patches/b.yaml"}) {
+			t.Errorf("expected patches [facets/patches/b.yaml], got %v", got)
 		}
 	})
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -402,6 +403,17 @@ func (l *BaseBlueprintLoader) loadBlueprintFromFile(path string) error {
 	}
 
 	l.normalizeOCISourceRefs(&bp)
+	baseDir := filepath.Dir(path)
+	for i := range bp.Kustomizations {
+		if err := l.inlinePatchFiles(bp.Kustomizations[i].Patches, baseDir, baseDir, false); err != nil {
+			return err
+		}
+	}
+	for i := range bp.FluxSystems {
+		if err := l.inlineFluxSystemPatches(&bp.FluxSystems[i], baseDir, baseDir, false); err != nil {
+			return err
+		}
+	}
 	l.blueprint = &bp
 	return nil
 }
@@ -437,12 +449,9 @@ func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
 			return l.invalidYAMLError("Facet", facetPath, err)
 		}
 
-		facet.Path = facetPath
-		if facet.Ordinal == nil {
-			ord := OrdinalFromFacetPath(facet.Path)
-			facet.Ordinal = &ord
+		if err := l.addFacet(facet, facetPath, baseDir); err != nil {
+			return err
 		}
-		l.facets = append(l.facets, facet)
 	}
 
 	return nil
@@ -484,12 +493,9 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 			facet.Kind = "Facet"
 		}
 
-		facet.Path = featurePath
-		if facet.Ordinal == nil {
-			ord := OrdinalFromFacetPath(facet.Path)
-			facet.Ordinal = &ord
+		if err := l.addFacet(facet, featurePath, baseDir); err != nil {
+			return err
 		}
-		l.facets = append(l.facets, facet)
 	}
 
 	return nil
@@ -545,6 +551,133 @@ func (l *BaseBlueprintLoader) collectTemplateData(dir string) error {
 	})
 }
 
+// addFacet sets the facet's Path and default Ordinal, inlines its patch files, and stores the facet.
+func (l *BaseBlueprintLoader) addFacet(facet blueprintv1alpha1.Facet, path, rootDir string) error {
+	facet.Path = path
+	if facet.Ordinal == nil {
+		ord := OrdinalFromFacetPath(facet.Path)
+		facet.Ordinal = &ord
+	}
+	if err := l.inlineFacetPatches(&facet, rootDir); err != nil {
+		return err
+	}
+	l.facets = append(l.facets, facet)
+	return nil
+}
+
+// inlineFacetPatches inlines the patch files of the facet. Remove entries get resolved paths only.
+func (l *BaseBlueprintLoader) inlineFacetPatches(facet *blueprintv1alpha1.Facet, rootDir string) error {
+	baseDir := filepath.Dir(facet.Path)
+	for i := range facet.Kustomizations {
+		k := &facet.Kustomizations[i]
+		if err := l.inlinePatchFiles(k.Patches, baseDir, rootDir, k.Strategy == "remove"); err != nil {
+			return err
+		}
+	}
+	for i := range facet.FluxSystems {
+		sys := &facet.FluxSystems[i]
+		if err := l.inlineFluxSystemPatches(sys, baseDir, rootDir, sys.Strategy == "remove"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inlineFluxSystemPatches inlines the patch files of the system's install and resources tiers.
+func (l *BaseBlueprintLoader) inlineFluxSystemPatches(sys *blueprintv1alpha1.FluxSystem, baseDir, rootDir string, resolveOnly bool) error {
+	if sys.Install != nil {
+		if err := l.inlinePatchFiles(sys.Install.Patches, baseDir, rootDir, resolveOnly); err != nil {
+			return err
+		}
+	}
+	for j := range sys.Resources {
+		if err := l.inlinePatchFiles(sys.Resources[j].Patches, baseDir, rootDir, resolveOnly); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inlinePatchFiles sets each patch Path relative to rootDir and, unless resolveOnly, reads the file
+// into Patch.
+func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.BlueprintPatch, baseDir, rootDir string, resolveOnly bool) error {
+	for i := range patches {
+		if patches[i].Path == "" {
+			continue
+		}
+		if patches[i].Patch != "" && !resolveOnly {
+			return werror.New(fmt.Sprintf("Patch entry sets both path %q and inline patch content", patches[i].Path),
+				"Set either 'path:' or 'patch:' on the entry, not both.", nil)
+		}
+		declaredPath := patches[i].Path
+		patchPath, rootRelPath, err := resolvePatchPath(declaredPath, baseDir, rootDir)
+		if err != nil {
+			return err
+		}
+		patches[i].Path = rootRelPath
+		if resolveOnly {
+			continue
+		}
+		shownPath := projectRelativePath(l.runtime, patchPath)
+		data, err := l.shims.ReadFile(patchPath)
+		if os.IsNotExist(err) {
+			return werror.New(fmt.Sprintf("Patch file %s does not exist (patches[].path %q)", shownPath, declaredPath),
+				"Create the patch file, or correct the path. A path resolves relative to the file that declares the patch.", err)
+		}
+		if err != nil {
+			return werror.Wrap(err, "failed to read patch file %s", shownPath)
+		}
+		parsed, err := l.parsePatchFile(data, shownPath, patches[i].Target)
+		if err != nil {
+			return err
+		}
+		patches[i].Patch = parsed.Patch
+		if patches[i].Target == nil {
+			patches[i].Target = parsed.Target
+		}
+	}
+	return nil
+}
+
+// parsePatchFile parses a patch file. A JSON 6902 file with no kind needs a declared target.
+func (l *BaseBlueprintLoader) parsePatchFile(data []byte, shownPath string, target *kustomize.Selector) (*blueprintv1alpha1.BlueprintPatch, error) {
+	var doc any
+	if err := l.shims.YamlUnmarshal(data, &doc); err != nil {
+		return nil, werror.Wrap(err, "failed to parse patch file %s", shownPath)
+	}
+	noTarget := werror.New(fmt.Sprintf("JSON 6902 patch file %s has no target", shownPath),
+		"Set 'target:' on the patch entry, or add kind and metadata to the patch file.", nil)
+	if ops, ok := doc.([]any); ok && len(ops) > 0 {
+		if target == nil {
+			return nil, noTarget
+		}
+		return &blueprintv1alpha1.BlueprintPatch{Patch: string(data)}, nil
+	}
+	if m, ok := doc.(map[string]any); ok {
+		ops, hasOps := m["patches"].([]any)
+		kind, _ := m["kind"].(string)
+		if hasOps && kind == "" {
+			if target == nil {
+				return nil, noTarget
+			}
+			opsData, err := l.shims.YamlMarshal(ops)
+			if err != nil {
+				return nil, werror.Wrap(err, "failed to marshal JSON patch operations in %s", shownPath)
+			}
+			return &blueprintv1alpha1.BlueprintPatch{Patch: string(opsData)}, nil
+		}
+	}
+	parsed, err := parsePatchData(l.shims, data, shownPath)
+	if err != nil {
+		return nil, err
+	}
+	if parsed == nil {
+		return nil, werror.New(fmt.Sprintf("Patch file %s holds no patch", shownPath),
+			"Add the patch content to the file, or remove the patch entry.", nil)
+	}
+	return parsed, nil
+}
+
 // invalidYAMLError returns a WindsorError for a file that does not parse as YAML. The message names
 // the file relative to the project root when the file is inside it, and holds the parser detail.
 func (l *BaseBlueprintLoader) invalidYAMLError(kind, path string, err error) error {
@@ -573,3 +706,18 @@ func projectRelativePath(rt *runtime.Runtime, path string) string {
 // =============================================================================
 
 var _ BlueprintLoader = (*BaseBlueprintLoader)(nil)
+
+// resolvePatchPath resolves path in baseDir and rejects a result outside rootDir.
+func resolvePatchPath(path, baseDir, rootDir string) (string, string, error) {
+	if filepath.IsAbs(path) {
+		return "", "", werror.New(fmt.Sprintf("Patch path %q is absolute", path),
+			"Use a path relative to the file that declares the patch.", nil)
+	}
+	resolved := filepath.Join(baseDir, path)
+	rel, err := filepath.Rel(rootDir, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", werror.New(fmt.Sprintf("Patch path %q resolves to a location outside its blueprint source", path),
+			"Keep the patch file inside the directory of the blueprint source that declares it.", err)
+	}
+	return resolved, filepath.ToSlash(rel), nil
+}

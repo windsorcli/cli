@@ -409,6 +409,27 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("WithPathOnlyPatchIgnored", func(t *testing.T) {
+		// Given a patch with a path and no inline content
+		kustomization := &v1alpha1.Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+			Patches: []v1alpha1.BlueprintPatch{
+				{
+					Path: "patches/web.yaml",
+				},
+			},
+		}
+
+		// When the kustomization converts to a Flux Kustomization
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
+
+		// Then the conversion emits no empty patch
+		if len(result.Spec.Patches) != 0 {
+			t.Errorf("Expected 0 patches (path-only patch ignored), got %d", len(result.Spec.Patches))
+		}
+	})
+
 	t.Run("TypeMetaAndObjectMeta", func(t *testing.T) {
 		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",

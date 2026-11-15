@@ -236,7 +236,7 @@ properties:
           description: |
             Strategic-merge or Flux-style patches applied to the kustomization.
             Each entry takes one of two forms: a 'path:' to a patch file
-            relative to the kustomization, or a 'patch:' inline YAML body with
+            relative to the file that declares it, or a 'patch:' inline YAML body with
             an optional 'target:' selector (kind / name / namespace).
           items:
             type: object
@@ -244,7 +244,7 @@ properties:
             properties:
               path:
                 type: string
-                description: Path to a patch file relative to the kustomization (blueprint format).
+                description: Path to a patch file, relative to the file that declares it. A JSON 6902 file with no kind needs 'target:'.
               patch:
                 type: string
                 description: Inline patch body as YAML (Flux format).

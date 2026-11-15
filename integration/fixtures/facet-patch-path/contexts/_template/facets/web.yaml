@@ -1,0 +1,17 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: web
+  description: Patches a kustomization and a flux install tier from files
+
+kustomize:
+- name: web
+  patches:
+  - path: patches/web-replicas.yaml
+  - path: patches/web-json6902.yaml
+
+flux:
+- name: ingress
+  install:
+    patches:
+    - path: patches/web-replicas.yaml
