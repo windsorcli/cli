@@ -202,6 +202,9 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 			i := int(v)
 			c.Ordinal = &i
 		case float64:
+			if v != math.Trunc(v) || v > math.MaxInt || v < math.MinInt {
+				return fmt.Errorf("config block %q: ordinal must be an integer, got %v", c.Name, v)
+			}
 			i := int(v)
 			c.Ordinal = &i
 		default:

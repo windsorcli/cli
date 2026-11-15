@@ -42,27 +42,11 @@ type entryRef struct {
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents collects the terraform components of a facet into collected. It
-// evaluates the when condition, inputs, and source of each component, and merges entries by strategy.
+// collectTerraformComponent collects one terraform component of a facet into collected. It
+// evaluates the when condition, inputs, and source of the component, and merges it by strategy.
 // A remove component goes to addTerraformRemoval. An equal or higher-ordinal removal strips its fields
 // from a merge or replace component. A component with no when takes the facet condition. Expressions
 // can read config block values. It records input traces only with a trace collector.
-func (p *BaseBlueprintProcessor) collectTerraformComponents(
-	facet blueprintv1alpha1.Facet,
-	sourceName []string,
-	collected collectedComponents,
-	facetScope map[string]any,
-) error {
-	for _, tc := range facet.TerraformComponents {
-		if err := p.collectTerraformComponent(facet, tc, sourceName, collected, facetScope); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// collectTerraformComponent collects one terraform component of a facet into collected, by the
-// rules of collectTerraformComponents.
 func (p *BaseBlueprintProcessor) collectTerraformComponent(
 	facet blueprintv1alpha1.Facet,
 	tc blueprintv1alpha1.ConditionalTerraformComponent,
@@ -264,22 +248,11 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 	}
 }
 
-// collectKustomizations collects the kustomizations of a facet into collected. It evaluates the when
-// condition, substitutions, and source of each kustomization. Entries merge by ordinal, then replace >
+// collectKustomization collects one kustomization of a facet into collected. It evaluates the when
+// condition, substitutions, and source of the kustomization. Entries merge by ordinal, then replace >
 // merge. A remove entry goes to addKustomizationRemoval. A removal with an equal or higher ordinal
 // strips its fields from a merge or replace entry. A kustomization with no when takes the facet
 // condition. When facetScope is not nil, expressions can read config block values. Evaluation errors return.
-func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
-	for _, k := range facet.Kustomizations {
-		if err := p.collectKustomization(facet, k, sourceName, collected, facetScope); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// collectKustomization collects one kustomization of a facet into collected, by the rules of
-// collectKustomizations.
 func (p *BaseBlueprintProcessor) collectKustomization(facet blueprintv1alpha1.Facet, k blueprintv1alpha1.ConditionalKustomization, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
 	kustomizationByName := collected.kustomizationByName
 	componentWhen := k.When
@@ -532,22 +505,12 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
 }
 
-// collectFluxSystems evaluates a facet's flux: systems into collected. A remove system goes to
+// collectFluxSystem evaluates the flux system at systemIndex of a facet into collected. The
+// index locates the system in the facet file for the trace. A remove system goes to
 // addFluxSystemRemoval, and an equal or higher-ordinal removal strips its fields from a merge system.
 // Only a system's own when controls its inclusion, and collect then clears the when. An empty
 // component list never drops an install tier or a resources variant. A resources variant with no
 // Timeout or Interval takes both from the install tier.
-func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
-	for systemIndex := range facet.FluxSystems {
-		if err := p.collectFluxSystem(facet, systemIndex, sourceName, collected, facetScope); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// collectFluxSystem collects the flux system at systemIndex of a facet into collected, by the rules
-// of collectFluxSystems. The index locates the system in the facet file for the trace.
 func (p *BaseBlueprintProcessor) collectFluxSystem(facet blueprintv1alpha1.Facet, systemIndex int, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
 	fluxSystemByName := collected.fluxSystemByName
 	system := facet.FluxSystems[systemIndex]

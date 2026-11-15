@@ -750,6 +750,19 @@ controlplanes: ${cluster.controlplanes}
 		}
 	})
 
+	t.Run("ConfigBlockUnmarshalErrorsWhenOrdinalHasAFraction", func(t *testing.T) {
+		// Given a config block whose ordinal has a fraction
+		var block v1alpha1.ConfigBlock
+
+		// When the block is unmarshaled
+		err := yaml.Unmarshal([]byte("name: size\nordinal: 1.5\nvalue: 2\n"), &block)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when config block ordinal has a fraction")
+		}
+	})
+
 	t.Run("FacetUnmarshalsRequires", func(t *testing.T) {
 		facetYAML := []byte(`kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
