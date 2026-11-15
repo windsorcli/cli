@@ -715,6 +715,54 @@ controlplanes: ${cluster.controlplanes}
 		}
 	})
 
+	t.Run("ConfigBlockUnmarshalsOrdinal", func(t *testing.T) {
+		// Given a config block with a positive ordinal and one with a negative ordinal
+		for _, tc := range []struct {
+			yaml string
+			want int
+		}{
+			{yaml: "name: size\nordinal: 300\nvalue: 2\n", want: 300},
+			{yaml: "name: size\nordinal: -5\nvalue: 2\n", want: -5},
+		} {
+			// When the block is unmarshaled
+			var block v1alpha1.ConfigBlock
+			if err := yaml.Unmarshal([]byte(tc.yaml), &block); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			// Then the block holds the ordinal
+			if block.Ordinal == nil || *block.Ordinal != tc.want {
+				t.Errorf("Expected ordinal %d, got %v", tc.want, block.Ordinal)
+			}
+		}
+	})
+
+	t.Run("ConfigBlockUnmarshalErrorsWhenOrdinalIsNotAnInteger", func(t *testing.T) {
+		// Given a config block whose ordinal is a string
+		var block v1alpha1.ConfigBlock
+
+		// When the block is unmarshaled
+		err := yaml.Unmarshal([]byte("name: size\nordinal: high\nvalue: 2\n"), &block)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when config block ordinal is not an integer")
+		}
+	})
+
+	t.Run("ConfigBlockUnmarshalErrorsWhenOrdinalHasAFraction", func(t *testing.T) {
+		// Given a config block whose ordinal has a fraction
+		var block v1alpha1.ConfigBlock
+
+		// When the block is unmarshaled
+		err := yaml.Unmarshal([]byte("name: size\nordinal: 1.5\nvalue: 2\n"), &block)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error when config block ordinal has a fraction")
+		}
+	})
+
 	t.Run("FacetUnmarshalsRequires", func(t *testing.T) {
 		facetYAML := []byte(`kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
