@@ -41,6 +41,7 @@ var (
 	upgradeNodeTimeout        time.Duration
 	upgradeNodeOfflineTimeout time.Duration
 	upgradeNodeRebootMode     string
+	upgradeNodeSkipIfCurrent  bool
 )
 
 // sourceChanges lists the sources an upgrade moves, each with its previous and new URL.
@@ -285,7 +286,10 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --offline-timeout=8m
 
 # Some platforms don't reliably register kexec as an offline transition; powercycle is slower but more reliable
-windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --reboot-mode=powercycle`,
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --reboot-mode=powercycle
+
+# Do nothing when the node already runs the image version, for example a freshly created node
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --skip-if-current`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`upgrade cluster`](upgrade-cluster.md)\n" +
 			"[`check node-health`](check-node-health.md)",
@@ -341,7 +345,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, powercycle, outputFunc); err != nil {
+		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, powercycle, upgradeNodeSkipIfCurrent, outputFunc); err != nil {
 			return werror.Wrap(err, "node upgrade failed")
 		}
 
@@ -614,6 +618,7 @@ func init() {
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m.")
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
+	upgradeNodeCmd.Flags().BoolVar(&upgradeNodeSkipIfCurrent, "skip-if-current", false, "Exit 0 without upgrading when the node already runs the image version. If the version cannot be read, upgrade as usual.")
 	_ = upgradeNodeCmd.MarkFlagRequired("node")
 	_ = upgradeNodeCmd.MarkFlagRequired("image")
 }

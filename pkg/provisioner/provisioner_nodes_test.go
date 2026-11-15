@@ -49,7 +49,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 
 		// When UpgradeNode runs for one node with a v1.7.0 installer image
 		var output []string
-		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, func(msg string) {
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, false, func(msg string) {
 			output = append(output, msg)
 		})
 
@@ -88,7 +88,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When UpgradeNode runs
-		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, false, nil)
 
 		// Then a kube-apiserver readiness error is returned
 		if err == nil {
@@ -110,7 +110,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When UpgradeNode runs
-		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, false, nil)
 
 		// Then the upgrade request error is returned
 		if err == nil {
@@ -132,7 +132,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When UpgradeNode runs
-		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, false, nil)
 
 		// Then a node reboot wait error is returned
 		if err == nil {
@@ -152,7 +152,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
 
 		// When UpgradeNode runs
-		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, false, nil)
 
 		// Then a missing cluster client error is returned
 		if err == nil {
@@ -1022,6 +1022,91 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	})
 }
 
+func TestProvisioner_UpgradeNode_SkipIfCurrent(t *testing.T) {
+	const node = "10.0.0.1"
+	const image = "ghcr.io/siderolabs/installer:v1.7.0"
+
+	run := func(t *testing.T, skip bool, version string, versionErr error) (upgraded bool, output []string, err error) {
+		t.Helper()
+		mocks := setupProvisionerMocks(t)
+		mocks.ClusterClient.GetNodeVersionFunc = func(ctx context.Context, nodeAddress string) (string, error) {
+			if nodeAddress != node {
+				t.Errorf("Expected node %s, got %s", node, nodeAddress)
+			}
+			return version, versionErr
+		}
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
+			upgraded = true
+			return nil
+		}
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		err = prov.UpgradeNode(context.Background(), node, image, 0, false, skip, func(msg string) {
+			output = append(output, msg)
+		})
+		return upgraded, output, err
+	}
+
+	t.Run("SkipsWhenVersionsMatch", func(t *testing.T) {
+		// Given the flag is set and the node runs the image version
+		// When UpgradeNode runs
+		upgraded, output, err := run(t, true, "1.7.0", nil)
+
+		// Then no upgrade request is sent and the output says the node is current
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if upgraded {
+			t.Error("Expected no upgrade request")
+		}
+		if len(output) != 1 || !strings.Contains(output[0], "already at version 1.7.0") {
+			t.Errorf("Expected an already-at-version message, got %v", output)
+		}
+	})
+
+	t.Run("UpgradesWhenVersionsDiffer", func(t *testing.T) {
+		// Given the flag is set and the node runs an older version
+		// When UpgradeNode runs
+		upgraded, _, err := run(t, true, "1.6.0", nil)
+
+		// Then the upgrade request is sent
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !upgraded {
+			t.Error("Expected an upgrade request")
+		}
+	})
+
+	t.Run("UpgradesWhenVersionReadFails", func(t *testing.T) {
+		// Given the flag is set and the version read fails
+		// When UpgradeNode runs
+		upgraded, _, err := run(t, true, "", fmt.Errorf("unreachable"))
+
+		// Then the normal upgrade runs
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !upgraded {
+			t.Error("Expected an upgrade request")
+		}
+	})
+
+	t.Run("UpgradesWhenFlagUnset", func(t *testing.T) {
+		// Given the flag is unset and the versions match
+		// When UpgradeNode runs
+		upgraded, _, err := run(t, false, "1.7.0", nil)
+
+		// Then the upgrade request is still sent
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !upgraded {
+			t.Error("Expected an upgrade request")
+		}
+	})
+}
+
 func TestProvisioner_UpgradeNode_ExpectedVersion(t *testing.T) {
 	cases := []struct {
 		image    string
@@ -1047,7 +1132,7 @@ func TestProvisioner_UpgradeNode_ExpectedVersion(t *testing.T) {
 			prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{ClusterClient: mocks.ClusterClient})
 
 			// When UpgradeNode runs with the image
-			if err := prov.UpgradeNode(context.Background(), "10.0.0.1", c.image, 0, false, nil); err != nil {
+			if err := prov.UpgradeNode(context.Background(), "10.0.0.1", c.image, 0, false, false, nil); err != nil {
 				t.Fatalf("UpgradeNode failed: %v", err)
 			}
 

@@ -165,3 +165,34 @@ func TestMockClusterClient_Close(t *testing.T) {
 		client.Close()
 	})
 }
+
+func TestMockClusterClient_GetNodeVersion(t *testing.T) {
+	t.Run("CallsFuncWhenSet", func(t *testing.T) {
+		// Given a mock with GetNodeVersionFunc set
+		client := NewMockClusterClient()
+		client.GetNodeVersionFunc = func(ctx context.Context, nodeAddress string) (string, error) {
+			return "1.7.0", nil
+		}
+
+		// When calling GetNodeVersion
+		got, err := client.GetNodeVersion(context.Background(), "10.0.0.1")
+
+		// Then the configured version is returned
+		if err != nil || got != "1.7.0" {
+			t.Errorf("Expected 1.7.0, got %q, err %v", got, err)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenUnset", func(t *testing.T) {
+		// Given a mock with no GetNodeVersionFunc
+		client := NewMockClusterClient()
+
+		// When calling GetNodeVersion
+		got, err := client.GetNodeVersion(context.Background(), "10.0.0.1")
+
+		// Then an empty version and no error are returned
+		if err != nil || got != "" {
+			t.Errorf("Expected empty version and nil error, got %q, %v", got, err)
+		}
+	})
+}

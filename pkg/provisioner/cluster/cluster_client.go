@@ -45,6 +45,10 @@ type ClusterClient interface {
 	// context deadline.
 	WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string, outputFunc func(string)) error
 
+	// GetNodeVersion returns the Talos version a node is running, without the leading "v".
+	// It returns an error when the node cannot be reached or reports no version.
+	GetNodeVersion(ctx context.Context, nodeAddress string) (string, error)
+
 	// Close closes any open connections.
 	Close()
 }
@@ -92,6 +96,12 @@ func (c *BaseClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresse
 // WaitForNodesReboot implements the default reboot-wait behavior
 func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	return fmt.Errorf("WaitForNodesReboot not implemented")
+}
+
+// GetNodeVersion is a stub that returns an error indicating the method is not implemented.
+// Provider-specific implementations should override this.
+func (c *BaseClusterClient) GetNodeVersion(ctx context.Context, nodeAddress string) (string, error) {
+	return "", fmt.Errorf("GetNodeVersion not implemented")
 }
 
 // UpgradeNodes is a stub that returns an error indicating the method is not implemented.
