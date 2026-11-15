@@ -622,9 +622,6 @@ func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.Bluep
 			return werror.New(fmt.Sprintf("Patch entry sets both path %q and inline patch content", patches[i].Path),
 				"Set either 'path:' or 'patch:' on the entry, not both.", nil)
 		}
-		if patches[i].Patch != "" {
-			continue
-		}
 		declaredPath := patches[i].Path
 		patchPath, rootRelPath, err := resolvePatchPath(declaredPath, baseDir, rootDir)
 		if err != nil {

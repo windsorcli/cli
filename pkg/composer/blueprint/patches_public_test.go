@@ -208,6 +208,23 @@ func TestPatchPath(t *testing.T) {
 		}
 	})
 
+	t.Run("RemovesByPathWhenTheRemoveEntryAlsoSetsPatch", func(t *testing.T) {
+		// Given a blueprint patch path, and a facet remove entry that sets the same file and inline content
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)
+		f.write(t, "contexts/_template/blueprint.yaml", blueprintHeader+"metadata:\n  name: template\nkustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/web.yaml\n")
+		f.facet(t, "drop", "kustomize:\n- name: web\n  strategy: remove\n  patches:\n  - path: ../patches/web.yaml\n    patch: |\n      kind: Other\n")
+
+		// When the blueprint composes
+		bp := f.mustLoad(t).Generate()
+
+		// Then the remove entry deletes the patch by its resolved path
+		if got := renderedPatches(t, bp, "web"); len(got) != 0 {
+			t.Errorf("expected no patches, got %q", got)
+		}
+	})
+
 	t.Run("KeepsAPatchWhenTheRemoveEntryNamesADifferentFile", func(t *testing.T) {
 		// Given a blueprint patch path, and a facet remove entry whose same string names a missing file next to the facet
 		f := newFixture(t)
