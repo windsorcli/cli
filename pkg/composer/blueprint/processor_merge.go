@@ -1,5 +1,5 @@
 // The processor_merge file holds the merge steps of the BlueprintProcessor.
-// It provides the merge of collected entries by ordinal and by remove, replace, or merge strategy.
+// It provides the merge of collected entries by ordinal and by replace or merge strategy.
 // It applies the collected components, kustomizations, and flux systems to the target blueprint.
 // It drops entries whose when condition is false after the merge.
 
@@ -20,7 +20,9 @@ import (
 // strategyHint is the remediation for a strategy value that is not merge, replace, or remove.
 const strategyHint = "Set strategy to merge, replace, or remove."
 
-// strategyPrecedence is the tiebreaker when component ordinals are equal: remove > replace > merge.
+// strategyPrecedence is the tiebreaker when the ordinals of two entries are equal: remove > replace >
+// merge. Config blocks use all three. Component entries use replace > merge, because collect stores
+// the component removals apart.
 var strategyPrecedence = map[string]int{
 	"remove":  3,
 	"replace": 2,
@@ -31,11 +33,10 @@ var strategyPrecedence = map[string]int{
 // Private Methods
 // =============================================================================
 
-// updateFluxSystemEntry merges a new FluxSystem into entries by the rules of updateKustomizationEntry.
-// A higher ordinal wins through applyFluxSystemEntryByStrategy, so merge keeps merging; when either
-// side is remove, new replaces the entry. Equal ordinals use remove > replace > merge. A winning remove
-// stays in entries as a descriptor, and applyCollectedComponents applies it after the merges. A lower
-// ordinal still merges, with the higher-ordinal entry winning scalar conflicts.
+// updateFluxSystemEntry merges a new merge or replace FluxSystem into entries by the rules of
+// updateKustomizationEntry. A higher ordinal wins through applyFluxSystemEntryByStrategy, so merge
+// keeps merging. Equal ordinals use replace > merge. A lower ordinal still merges, with the
+// higher-ordinal entry winning scalar conflicts. A remove system goes to addFluxSystemRemoval instead.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -52,15 +53,10 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
-		if existingStrategy == "remove" || strategy == "remove" {
-			new.Strategy = strategy
-			entries[name] = new
-			return nil
-		}
 		return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
 	}
 	if newOrdinal < existingOrdinal {
-		if strategy != "merge" || existingStrategy == "remove" {
+		if strategy != "merge" {
 			return nil
 		}
 		return p.applyFluxSystemEntryByStrategy(name, existing, "merge", new, entries)
@@ -80,19 +76,13 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 }
 
 // applyFluxSystemEntryByStrategy applies new to the slot of existing in entries by strategy. Replace
-// swaps the whole entry. Remove builds a combined field-level removal descriptor with
-// accumulateFluxSystemRemovals, and never deletes the whole system. Merge unions DependsOn and
-// deep-merges Install and the Resources variants, with the helpers that Blueprint.UpsertFluxSystem uses.
+// swaps the whole entry. Merge unions DependsOn and deep-merges Install and the Resources variants,
+// with the helpers that Blueprint.UpsertFluxSystem uses.
 func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	switch strategy {
 	case "replace":
 		new.Strategy = strategy
 		entries[name] = new
-	case "remove":
-		accumulated := p.accumulateFluxSystemRemovals(*existing, *new)
-		accumulated.Strategy = "remove"
-		accumulated.Ordinal = new.Ordinal
-		entries[name] = &accumulated
 	case "merge":
 		merged := *existing
 		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
@@ -153,10 +143,10 @@ func unionCrdRefs(existing []string, refs map[string]struct{}) []string {
 	return out
 }
 
-// updateTerraformComponentEntry merges a new component into an existing entry by ordinal, strategy,
-// and when. A higher ordinal wins for replace and remove. Equal ordinals use remove > replace > merge.
+// updateTerraformComponentEntry merges a new merge or replace component into an existing entry by
+// ordinal, strategy, and when. A higher ordinal wins for replace. Equal ordinals use replace > merge.
 // A lower ordinal still merges, with the higher-ordinal entry winning scalar conflicts. An entry whose
-// when is now false is dropped.
+// when is now false is dropped. A remove component goes to addTerraformRemoval instead.
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -205,16 +195,11 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 			entries[componentID] = new
 			return nil
 		}
-		if strategy == "remove" && existingStrategy != "remove" {
-			new.Strategy = strategy
-			entries[componentID] = new
-			return nil
-		}
 		return p.applyTerraformComponentEntryByStrategy(componentID, new, existing, strategy, entries)
 	}
 
 	if newOrdinal < existingOrdinal {
-		if strategy != "merge" || existingStrategy == "remove" {
+		if strategy != "merge" {
 			return nil
 		}
 		return p.applyTerraformComponentEntryByStrategy(componentID, existing, new, "merge", entries)
@@ -234,9 +219,8 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 }
 
 // applyTerraformComponentEntryByStrategy applies new over existing in entries by strategy. An empty strategy means merge.
-// replace stores new. merge does a strategic merge of new over existing. remove accumulates the removals.
-// merge and remove combine the when expressions of both entries with &&.
-// An unknown strategy returns an error with a remediation hint.
+// replace stores new. merge does a strategic merge of new over existing, and combines the when
+// expressions of both entries with &&. Any other strategy returns an error with a remediation hint.
 func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -277,24 +261,15 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 			When:               combinedWhen,
 		}
 		return nil
-	case "remove":
-		accumulated := p.accumulateTerraformRemovals(existing.TerraformComponent, new.TerraformComponent)
-		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
-			TerraformComponent: accumulated,
-			Strategy:           "remove",
-			Ordinal:            new.Ordinal,
-			When:               combinedWhen,
-		}
-		return nil
 	default:
 		return werror.New(fmt.Sprintf("invalid strategy '%s' for terraform component '%s'", strategy, componentID), strategyHint, nil)
 	}
 }
 
-// updateKustomizationEntry merges a new kustomization into an existing entry by ordinal, then by
-// remove > replace > merge. At equal ordinal and strategy, merge pre-merges the two, remove combines
-// the removals, and replace swaps the entry. A lower ordinal still merges, with the higher-ordinal
-// entry winning scalar conflicts. A merge failure returns an error.
+// updateKustomizationEntry merges a new merge or replace kustomization into an existing entry by
+// ordinal, then by replace > merge. At equal ordinal and strategy, merge pre-merges the two, and
+// replace swaps the entry. A lower ordinal still merges, with the higher-ordinal entry winning scalar
+// conflicts. A merge failure returns an error. A remove entry goes to addKustomizationRemoval instead.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -332,16 +307,11 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
-		if existingStrategy == "remove" || strategy == "remove" {
-			new.Strategy = strategy
-			entries[name] = new
-			return nil
-		}
 		return p.applyKustomizationEntryByStrategy(name, new, strategy, existing, entries)
 	}
 
 	if newOrdinal < existingOrdinal {
-		if strategy != "merge" || existingStrategy == "remove" {
+		if strategy != "merge" {
 			return nil
 		}
 		return p.applyKustomizationEntryByStrategy(name, existing, "merge", new, entries)
@@ -361,9 +331,8 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 }
 
 // applyKustomizationEntryByStrategy applies new over existing in entries by strategy. An empty strategy means merge.
-// replace stores new. merge does a strategic merge of new over existing. remove accumulates the removals.
-// merge and remove combine the when expressions of both entries with &&.
-// An unknown strategy returns an error with a remediation hint.
+// replace stores new. merge does a strategic merge of new over existing, and combines the when
+// expressions of both entries with &&. Any other strategy returns an error with a remediation hint.
 func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, existing *blueprintv1alpha1.ConditionalKustomization, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	if strategy == "" {
 		strategy = "merge"
@@ -398,41 +367,38 @@ func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, 
 			When:          combinedWhen,
 		}
 		return nil
-	case "remove":
-		accumulated := p.accumulateKustomizationRemovals(existing.Kustomization, new.Kustomization)
-		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: accumulated,
-			Strategy:      "remove",
-			Ordinal:       new.Ordinal,
-			When:          combinedWhen,
-		}
-		return nil
 	default:
 		return werror.New(fmt.Sprintf("invalid strategy '%s' for kustomization '%s'", strategy, name), strategyHint, nil)
 	}
 }
 
-// applyCollectedComponents applies all collected components and kustomizations to the target
-// blueprint in the documented order: replace operations first, then merge operations, then remove
-// operations last. This ensures that remove operations are applied after all merge/replace
-// operations, as documented. Returns an error if any application operation fails.
+// applyCollectedComponents applies the collected entries to target in this order:
+//  1. The removals strip their fields from the entries that target already holds.
+//  2. The replace entries swap the matching entries, and the merge entries merge.
+//  3. The flux systems are written.
+//
+// A higher-ordinal merge can add a removed field back, because collect strips only lower entries.
 func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, collected collectedComponents, scope map[string]any) error {
 	if err := p.dropExcludedEntries(collected, scope); err != nil {
 		return err
 	}
 
-	terraformRemovals, terraformReplaces, terraformMerges, err := partitionByStrategy(collected.terraformByID, "terraform component",
+	terraformReplaces, terraformMerges, err := partitionByStrategy(collected.terraformByID, "terraform component",
 		func(e *blueprintv1alpha1.ConditionalTerraformComponent) (string, blueprintv1alpha1.TerraformComponent) {
 			return e.Strategy, e.TerraformComponent
 		})
 	if err != nil {
 		return err
 	}
-	kustomizationRemovals, kustomizationReplaces, kustomizationMerges, err := partitionByStrategy(collected.kustomizationByName, "kustomization",
+	kustomizationReplaces, kustomizationMerges, err := partitionByStrategy(collected.kustomizationByName, "kustomization",
 		func(e *blueprintv1alpha1.ConditionalKustomization) (string, blueprintv1alpha1.Kustomization) {
 			return e.Strategy, e.Kustomization
 		})
 	if err != nil {
+		return err
+	}
+
+	if err := applyRemovals(target, collected.removals()); err != nil {
 		return err
 	}
 
@@ -451,12 +417,6 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
-	for _, removal := range terraformRemovals {
-		if err := target.RemoveTerraformComponent(removal); err != nil {
-			return werror.Wrap(err, "error removing terraform component '%s'", removal.GetID())
-		}
-	}
-
 	for _, replacement := range kustomizationReplaces {
 		if err := target.ReplaceKustomization(replacement); err != nil {
 			return werror.Wrap(err, "error replacing kustomization '%s'", replacement.Name)
@@ -469,12 +429,6 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 		if err := target.StrategicMerge(tempBp); err != nil {
 			return werror.Wrap(err, "error merging kustomization '%s'", merge.Name)
-		}
-	}
-
-	for _, removal := range kustomizationRemovals {
-		if err := target.RemoveKustomization(removal); err != nil {
-			return werror.Wrap(err, "error removing kustomization '%s'", removal.Name)
 		}
 	}
 
@@ -508,71 +462,6 @@ func (p *BaseBlueprintProcessor) dropExcludedEntries(collected collectedComponen
 		}
 	}
 	return nil
-}
-
-// accumulateTerraformRemovals combines the removals of two remove-strategy terraform components. It
-// keeps the ID fields (Path, Name, Source), which match the component and are never removed. It unions
-// the fields that RemoveTerraformComponent removes: Inputs keys and DependsOn items. A component that
-// is not in the target blueprint is not changed.
-func (p *BaseBlueprintProcessor) accumulateTerraformRemovals(existing, new blueprintv1alpha1.TerraformComponent) blueprintv1alpha1.TerraformComponent {
-	accumulated := blueprintv1alpha1.TerraformComponent{
-		Path:   existing.Path,
-		Name:   existing.Name,
-		Source: existing.Source,
-	}
-
-	accumulated.Inputs = accumulateMapKeys(existing.Inputs, new.Inputs)
-	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
-
-	return accumulated
-}
-
-// accumulateKustomizationRemovals combines the removals of two remove-strategy kustomizations. It keeps
-// Name, which matches the kustomization and is never removed. It unions the fields that
-// RemoveKustomization removes: DependsOn, Components, Patches, and Substitutions keys. A kustomization
-// that is not in the target blueprint is not changed.
-func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
-	accumulated := blueprintv1alpha1.Kustomization{
-		Name: existing.Name,
-	}
-
-	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
-	accumulated.Components = accumulateStringSlice(existing.Components, new.Components)
-	accumulated.Patches = append(accumulated.Patches, existing.Patches...)
-	accumulated.Patches = append(accumulated.Patches, new.Patches...)
-	accumulated.Substitutions = accumulateMapKeys(existing.Substitutions, new.Substitutions)
-
-	return accumulated
-}
-
-// accumulateFluxSystemRemovals combines two remove-strategy FluxSystem descriptors. DependsOn unions
-// through accumulateStringSlice, and the Resources variants concatenate; RemoveFluxSystem drops each
-// named variant, so duplicates do no harm. Install removals combine through
-// accumulateKustomizationRemovals, with a nil Install treated as an empty Kustomization.
-func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blueprintv1alpha1.FluxSystem) blueprintv1alpha1.FluxSystem {
-	accumulated := blueprintv1alpha1.FluxSystem{
-		Name: existing.Name,
-	}
-
-	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
-
-	if existing.Install != nil || new.Install != nil {
-		mergedInstall := p.accumulateKustomizationRemovals(kustomizationOrZero(existing.Install), kustomizationOrZero(new.Install))
-		accumulated.Install = &mergedInstall
-	}
-
-	accumulated.Resources = append(accumulated.Resources, existing.Resources...)
-	accumulated.Resources = append(accumulated.Resources, new.Resources...)
-
-	return accumulated
-}
-
-// kustomizationOrZero dereferences k, or returns a zero-value Kustomization when k is nil.
-func kustomizationOrZero(k *blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
-	if k == nil {
-		return blueprintv1alpha1.Kustomization{}
-	}
-	return *k
 }
 
 // =============================================================================
@@ -617,6 +506,16 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 	return result
 }
 
+// sortedKeys returns the keys of m in ascending order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // traceEntryKey returns the name of one merged entry in the trace collector. The key holds the
 // source, because each source merges its facets on its own.
 func traceEntryKey(source, kind, name string) string {
@@ -643,67 +542,33 @@ func settleEntryTrace[E any](p *BaseBlueprintProcessor, entryKey string, previou
 	p.traceCollector.SettleEntry(entryKey, keepExisting, keepNew)
 }
 
-// partitionByStrategy sorts the entries by key and splits them into removals, replaces, and merges by
-// strategy. An empty strategy means merge. kind names the entry type in the error for an unknown
-// strategy.
-func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split func(*E) (string, T)) (removals, replaces, merges []T, err error) {
-	keys := make([]string, 0, len(entries))
-	for key := range entries {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
+// partitionByStrategy sorts the entries by key and splits them into replaces and merges by strategy.
+// An empty strategy means merge. Any other strategy returns an error, because the collect step stores
+// removals apart from the entries. kind names the entry type in the error.
+func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split func(*E) (string, T)) (replaces, merges []T, err error) {
+	for _, key := range sortedKeys(entries) {
 		strategy, item := split(entries[key])
-		if strategy == "" {
-			strategy = "merge"
-		}
-
 		switch strategy {
-		case "remove":
-			removals = append(removals, item)
 		case "replace":
 			replaces = append(replaces, item)
-		case "merge":
+		case "", "merge":
 			merges = append(merges, item)
 		default:
-			return nil, nil, nil, werror.New(fmt.Sprintf("invalid strategy '%s' for %s '%s'", strategy, kind, key), strategyHint, nil)
+			return nil, nil, werror.New(fmt.Sprintf("invalid strategy '%s' for %s '%s'", strategy, kind, key), strategyHint, nil)
 		}
 	}
-	return removals, replaces, merges, nil
+	return replaces, merges, nil
 }
 
 // applyFluxSystems writes the collected flux systems to target in name order, clearing each one's
-// strategy and ordinal. Systems with the remove strategy are removed after all others are written.
+// strategy and ordinal.
 func applyFluxSystems(target *blueprintv1alpha1.Blueprint, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem) error {
-	var fluxRemovals []blueprintv1alpha1.FluxSystem
-
-	fluxKeys := make([]string, 0, len(fluxSystemByName))
-	for key := range fluxSystemByName {
-		fluxKeys = append(fluxKeys, key)
-	}
-	sort.Strings(fluxKeys)
-	for _, key := range fluxKeys {
+	for _, key := range sortedKeys(fluxSystemByName) {
 		sys := *fluxSystemByName[key]
-		strategy := sys.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
 		sys.Strategy = ""
 		sys.Ordinal = nil
-
-		if strategy == "remove" {
-			fluxRemovals = append(fluxRemovals, sys)
-			continue
-		}
 		if err := target.UpsertFluxSystem(sys); err != nil {
 			return werror.Wrap(err, "error writing flux system '%s'", key)
-		}
-	}
-
-	for _, removal := range fluxRemovals {
-		if err := target.RemoveFluxSystem(removal); err != nil {
-			return werror.Wrap(err, "error removing flux system '%s'", removal.Name)
 		}
 	}
 	return nil

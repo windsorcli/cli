@@ -1436,7 +1436,8 @@ func TestProcessor_ProcessGlobally_Tiers(t *testing.T) {
 		}
 	})
 
-	t.Run("HigherOrdinalRemoveDeletesFluxSystem", func(t *testing.T) {
+	t.Run("HigherOrdinalRemoveStripsNamedFieldsOfFluxSystem", func(t *testing.T) {
+		// Given a provider facet with two install components, and a higher-ordinal facet that removes one
 		mocks := setupProcessorMocks(t)
 		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		ordProvider := 200
@@ -1447,33 +1448,35 @@ func TestProcessor_ProcessGlobally_Tiers(t *testing.T) {
 				Ordinal:  &ordProvider,
 				FluxSystems: []blueprintv1alpha1.FluxSystem{{
 					Name:    "gateway",
-					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy", "metrics"}},
 				}},
 			},
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "option-remove-gateway"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-remove-metrics"},
 				Ordinal:  &ordRemoval,
 				FluxSystems: []blueprintv1alpha1.FluxSystem{{
 					Name:     "gateway",
 					Strategy: "remove",
+					Install:  &blueprintv1alpha1.Kustomization{Components: []string{"metrics"}},
 				}},
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
+
+		// When the facets are processed
 		if _, err := processFacets(processor, target, facets); err != nil {
 			t.Fatalf("ProcessGlobally: %v", err)
 		}
-		if _, ok := find(target, "gateway-install"); ok {
-			t.Errorf("expected a higher-ordinal remove to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
-		}
-		for _, sys := range target.FluxSystems {
-			if sys.Name == "gateway" {
-				t.Errorf("expected no gateway FluxSystem entry after a higher-ordinal remove, got %+v", sys)
-			}
+
+		// Then the system keeps its other install component
+		install, ok := find(target, "gateway-install")
+		if !ok || !slices.Equal(install.Components, []string{"envoy"}) {
+			t.Errorf("expected gateway-install with components [envoy], got %+v", target.AllKustomizations())
 		}
 	})
 
-	t.Run("EqualOrdinalRemoveStrategyPrecedenceDeletesFluxSystem", func(t *testing.T) {
+	t.Run("BareRemoveKeepsFluxSystem", func(t *testing.T) {
+		// Given a facet that adds a system, and a facet at the same ordinal that removes it with no fields
 		mocks := setupProcessorMocks(t)
 		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
@@ -1493,16 +1496,16 @@ func TestProcessor_ProcessGlobally_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
+
+		// When the facets are processed
 		if _, err := processFacets(processor, target, facets); err != nil {
 			t.Fatalf("ProcessGlobally: %v", err)
 		}
-		if _, ok := find(target, "gateway-install"); ok {
-			t.Errorf("expected equal-ordinal remove (higher strategy precedence) to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
-		}
-		for _, sys := range target.FluxSystems {
-			if sys.Name == "gateway" {
-				t.Errorf("expected no gateway FluxSystem entry after remove wins on strategy precedence, got %+v", sys)
-			}
+
+		// Then the system stays, because the removal names no fields
+		install, ok := find(target, "gateway-install")
+		if !ok || !slices.Equal(install.Components, []string{"envoy"}) {
+			t.Errorf("expected gateway-install with components [envoy], got %+v", target.AllKustomizations())
 		}
 	})
 

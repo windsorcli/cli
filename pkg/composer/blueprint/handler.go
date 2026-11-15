@@ -646,7 +646,8 @@ func (h *BaseBlueprintHandler) loadersWithBlueprints() ([]BlueprintLoader, map[B
 }
 
 // processSourceFacets runs global facet processing over the loaders in dependency order, with
-// repositoryScope as extra scope. It copies the processor's deferred paths onto the handler and returns
+// repositoryScope as extra scope. It passes each loader, also a loader with no facets, so the removals
+// of a deeper source can apply to the blueprint of a shallower source. It copies the processor's deferred paths onto the handler and returns
 // the resolved scope keyed by each source that contributed facets. A RequirementsError is returned
 // unwrapped.
 func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintLoader, loaderNames map[BlueprintLoader]string, repositoryScope map[string]any) (map[string]map[string]any, error) {
@@ -665,15 +666,11 @@ func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintL
 	}
 	var sourceSets []SourceFacetSet
 	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
-		facets := loader.GetFacets()
-		if len(facets) == 0 {
-			continue
-		}
 		sourceSets = append(sourceSets, SourceFacetSet{
 			Name:   loaderNames[loader],
 			Depth:  depth,
 			Target: loader.GetBlueprint(),
-			Facets: facets,
+			Facets: loader.GetFacets(),
 		})
 	}
 	globalScope, err := h.processor.ProcessGlobally(sourceSets)

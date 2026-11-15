@@ -421,7 +421,11 @@ properties:
             - merge
             - replace
             - remove
-          description: How a system with this name merges across facets. Defaults to merge.
+          description: >-
+            How a system with this name merges across facets. Defaults to merge.
+            'remove' deletes only the named dependsOn entries, install fields, and
+            resources variants, and never deletes the whole system. See
+            [Composition order](composition-order.md#removals).
         ordinal:
           type: integer
           description: Overrides the facet ordinal for this system's merge precedence.
