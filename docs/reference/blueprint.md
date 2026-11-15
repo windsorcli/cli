@@ -113,7 +113,7 @@ shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. |
+| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
 | `target` | `object` | Selector for the patch (kind / name / namespace). |
 
 ### flux[].resources[]
@@ -181,7 +181,7 @@ shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. |
+| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
 | `target` | `object` | Selector for the patch (kind / name / namespace). |
 
 ### flux[].secrets{}
@@ -257,7 +257,7 @@ shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. |
+| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
 | `target` | `object` | Selector for the patch (kind / name / namespace). |
 
 ## messages[]

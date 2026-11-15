@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -608,12 +609,20 @@ func (l *BaseBlueprintLoader) inlineFluxSystemPatches(sys *blueprintv1alpha1.Flu
 // resolveOnly is false, it also reads the file and parses it with parsePatchData. A strategic merge
 // file and a JSON 6902 file both work, and a declared target wins over the target in the file.
 // The function returns an error when:
+//   - an entry that is not resolveOnly sets both a path and inline content.
 //   - the path is absolute, or resolves to a location outside rootDir.
 //   - the file does not exist or cannot be read.
-//   - the file is not valid YAML, or holds no patch.
+//   - the file is not valid YAML, holds no patch, or is a JSON 6902 patch with no target.
 func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.BlueprintPatch, baseDir, rootDir string, resolveOnly bool) error {
 	for i := range patches {
-		if patches[i].Path == "" || patches[i].Patch != "" {
+		if patches[i].Path == "" {
+			continue
+		}
+		if patches[i].Patch != "" && !resolveOnly {
+			return werror.New(fmt.Sprintf("Patch entry sets both path %q and inline patch content", patches[i].Path),
+				"Set either 'path:' or 'patch:' on the entry, not both.", nil)
+		}
+		if patches[i].Patch != "" {
 			continue
 		}
 		declaredPath := patches[i].Path
@@ -634,13 +643,9 @@ func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.Bluep
 		if err != nil {
 			return werror.Wrap(err, "failed to read patch file %s", shownPath)
 		}
-		parsed, err := parsePatchData(l.shims, data, shownPath)
+		parsed, err := l.parsePatchFile(data, shownPath, patches[i].Target)
 		if err != nil {
 			return err
-		}
-		if parsed == nil {
-			return werror.New(fmt.Sprintf("Patch file %s holds no patch", shownPath),
-				"Add the patch content to the file, or remove the patch entry.", nil)
 		}
 		patches[i].Patch = parsed.Patch
 		if patches[i].Target == nil {
@@ -648,6 +653,51 @@ func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.Bluep
 		}
 	}
 	return nil
+}
+
+// parsePatchFile parses the content of a patch file. The target is the target that the entry
+// declares, or nil. The file can take one of these forms:
+//   - a list of JSON 6902 operations. The entry must declare a target.
+//   - a patches: list of JSON 6902 operations with no kind. The entry must declare a target.
+//   - a JSON 6902 patch with kind and metadata, or a strategic merge patch. See parsePatchData.
+//
+// It returns an error when the file is not valid YAML, holds no patch, or has no target.
+func (l *BaseBlueprintLoader) parsePatchFile(data []byte, shownPath string, target *kustomize.Selector) (*blueprintv1alpha1.BlueprintPatch, error) {
+	var doc any
+	if err := l.shims.YamlUnmarshal(data, &doc); err != nil {
+		return nil, werror.Wrap(err, "failed to parse patch file %s", shownPath)
+	}
+	noTarget := werror.New(fmt.Sprintf("JSON 6902 patch file %s has no target", shownPath),
+		"Set 'target:' on the patch entry, or add kind and metadata to the patch file.", nil)
+	if ops, ok := doc.([]any); ok && len(ops) > 0 {
+		if target == nil {
+			return nil, noTarget
+		}
+		return &blueprintv1alpha1.BlueprintPatch{Patch: string(data)}, nil
+	}
+	if m, ok := doc.(map[string]any); ok {
+		ops, hasOps := m["patches"].([]any)
+		kind, _ := m["kind"].(string)
+		if hasOps && kind == "" {
+			if target == nil {
+				return nil, noTarget
+			}
+			opsData, err := l.shims.YamlMarshal(ops)
+			if err != nil {
+				return nil, werror.Wrap(err, "failed to marshal JSON patch operations in %s", shownPath)
+			}
+			return &blueprintv1alpha1.BlueprintPatch{Patch: string(opsData)}, nil
+		}
+	}
+	parsed, err := parsePatchData(l.shims, data, shownPath)
+	if err != nil {
+		return nil, err
+	}
+	if parsed == nil {
+		return nil, werror.New(fmt.Sprintf("Patch file %s holds no patch", shownPath),
+			"Add the patch content to the file, or remove the patch entry.", nil)
+	}
+	return parsed, nil
 }
 
 // invalidYAMLError returns a WindsorError for a file that does not parse as YAML. The message names

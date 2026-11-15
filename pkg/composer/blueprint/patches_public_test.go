@@ -242,6 +242,72 @@ func TestPatchPath(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesTheOperationsOfAPatchesListWithNoKind", func(t *testing.T) {
+		// Given a patch file with a patches: list and no kind, and an entry with a target
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/facets/patches/ops.yaml", "patches:\n- op: add\n  path: /metadata/labels/tier\n  value: web\n")
+		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/ops.yaml\n    target:\n      kind: Deployment\n      name: web\n")
+
+		// When the blueprint composes
+		bp := f.mustLoad(t).Generate()
+
+		// Then the patch holds only the operation list
+		p := kustomization(bp, "web").Patches[0]
+		if strings.Contains(p.Patch, "patches:") || !strings.Contains(p.Patch, "op: add") {
+			t.Errorf("expected only the operation list, got %q", p.Patch)
+		}
+	})
+
+	t.Run("UsesABareOperationList", func(t *testing.T) {
+		// Given a patch file that is a bare JSON 6902 operation list, and an entry with a target
+		f := newFixture(t)
+		f.project(t)
+		ops := "- op: replace\n  path: /spec/replicas\n  value: 3\n"
+		f.write(t, "contexts/_template/facets/patches/ops.yaml", ops)
+		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/ops.yaml\n    target:\n      kind: Deployment\n      name: web\n")
+
+		// When the blueprint composes
+		bp := f.mustLoad(t).Generate()
+
+		// Then the patch holds the file content
+		if got := renderedPatches(t, bp, "web"); len(got) != 1 || got[0] != ops {
+			t.Errorf("expected the operation list, got %q", got)
+		}
+	})
+
+	t.Run("FailsWhenAJSON6902FileHasNoTarget", func(t *testing.T) {
+		// Given a bare operation list, and an entry with no target
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/facets/patches/ops.yaml", "- op: replace\n  path: /spec/replicas\n  value: 3\n")
+		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/ops.yaml\n")
+
+		// When the blueprint loads
+		_, err := f.load(t)
+
+		// Then the error says that the patch has no target
+		if err == nil || !strings.Contains(err.Error(), "has no target") {
+			t.Errorf("expected a no-target error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenAnEntrySetsBothPathAndPatch", func(t *testing.T) {
+		// Given an entry with a path and inline patch content
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/facets/patches/web.yaml", strategicMergePatch)
+		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/web.yaml\n    patch: |\n      kind: Deployment\n")
+
+		// When the blueprint loads
+		_, err := f.load(t)
+
+		// Then the error names the conflict
+		if err == nil || !strings.Contains(err.Error(), "both path") {
+			t.Errorf("expected a both-set error, got %v", err)
+		}
+	})
+
 	t.Run("RejectsAPathOutsideTheSource", func(t *testing.T) {
 		// Given a facet patch path that leaves the blueprint source directory
 		f := newFixture(t)

@@ -253,6 +253,8 @@ properties:
                   unless the entry sets 'target:'. The path must stay inside the
                   blueprint source. Composition fails when the file does not exist.
                   A 'strategy: remove' entry matches a patch that names the same file.
+                  A JSON 6902 file with no kind, or a bare operation list, needs
+                  'target:' on the entry. Do not set 'path:' and 'patch:' together.
               patch:
                 type: string
                 description: Inline patch body as YAML (Flux format).
@@ -483,6 +485,8 @@ properties:
                       unless the entry sets 'target:'. The path must stay inside the
                       blueprint source. Composition fails when the file does not exist.
                       A 'strategy: remove' entry matches a patch that names the same file.
+                      A JSON 6902 file with no kind, or a bare operation list, needs
+                      'target:' on the entry. Do not set 'path:' and 'patch:' together.
                   patch:
                     type: string
                     description: Inline patch body as YAML (Flux format).
@@ -654,6 +658,8 @@ properties:
                         unless the entry sets 'target:'. The path must stay inside the
                         blueprint source. Composition fails when the file does not exist.
                         A 'strategy: remove' entry matches a patch that names the same file.
+                        A JSON 6902 file with no kind, or a bare operation list, needs
+                        'target:' on the entry. Do not set 'path:' and 'patch:' together.
                     patch:
                       type: string
                       description: Inline patch body as YAML (Flux format).
