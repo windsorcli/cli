@@ -1,0 +1,5 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-flux-secrets
+  description: Flux system Secret assertion integration fixture

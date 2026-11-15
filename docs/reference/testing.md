@@ -31,8 +31,24 @@ terraform components and kustomizations are present or absent.
 
 | Field | Type | Description |
 |------|------|-------------|
+| `flux` | `array<object>` | Flux systems to assert on. |
 | `kustomize` | `array<object>` | Kustomizations to assert on. |
 | `terraform` | `array<object>` | Terraform components to assert on. |
+
+#### cases[].exclude.flux[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | Flux system name. Used as the match key. |
+| `secrets` | `map<object>` | Secrets to assert on, keyed by Secret name. Only the listed Secrets are checked. In 'exclude', a Secret without 'data' MUST be absent. |
+
+#### cases[].exclude.flux[].secrets{}
+
+| Field | Type | Description |
+|------|------|-------------|
+| `data` | `map<string>` | Data keys to assert on. Windsor resolves Secrets only at apply time, so the composed blueprint holds each authored ${...} expression. In 'expect', each value MUST equal that expression exactly. In 'exclude', each listed key MUST be absent, and the value is not compared. |
+| `namespaces` | `array<string>` | Expected namespaces. Match is 'contains'. |
+| `type` | `string` | Expected Kubernetes Secret type. Asserted only when set. |
 
 #### cases[].exclude.kustomize[]
 
@@ -59,8 +75,24 @@ terraform components and kustomizations are present or absent.
 
 | Field | Type | Description |
 |------|------|-------------|
+| `flux` | `array<object>` | Flux systems to assert on. |
 | `kustomize` | `array<object>` | Kustomizations to assert on. |
 | `terraform` | `array<object>` | Terraform components to assert on. |
+
+#### cases[].expect.flux[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | Flux system name. Used as the match key. |
+| `secrets` | `map<object>` | Secrets to assert on, keyed by Secret name. Only the listed Secrets are checked. In 'exclude', a Secret without 'data' MUST be absent. |
+
+#### cases[].expect.flux[].secrets{}
+
+| Field | Type | Description |
+|------|------|-------------|
+| `data` | `map<string>` | Data keys to assert on. Windsor resolves Secrets only at apply time, so the composed blueprint holds each authored ${...} expression. In 'expect', each value MUST equal that expression exactly. In 'exclude', each listed key MUST be absent, and the value is not compared. |
+| `namespaces` | `array<string>` | Expected namespaces. Match is 'contains'. |
+| `type` | `string` | Expected Kubernetes Secret type. Asserted only when set. |
 
 #### cases[].expect.kustomize[]
 
@@ -117,6 +149,21 @@ cases:
       kustomize:
         - name: addon-dns
     name: env-gates-addon
+  - exclude:
+      flux:
+        - name: registry
+          secrets:
+            harbor-admin:
+              data:
+                token: ""
+    expect:
+      flux:
+        - name: registry
+          secrets:
+            harbor-admin:
+              data:
+                password: ${registry.admin_password}
+    name: registry-secret-uses-admin-password
 ```
 
 ## See also

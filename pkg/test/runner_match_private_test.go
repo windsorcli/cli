@@ -605,6 +605,31 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		}
 	})
 
+	t.Run("ChecksOnlySecretsWhenExclusionListsSecrets", func(t *testing.T) {
+		// Given a present system and an exclusion that names only one of its Secrets
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "registry", Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${p}"}}}},
+			},
+		}
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "registry", Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {}}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then the diff should name the Secret, not the whole system
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin]: should not exist") {
+			t.Errorf("Expected secret exclusion diff only, got: %v", diffs)
+		}
+	})
+
 	t.Run("ReturnsDiffsWhenExcludedResourcesVariantExistsWithinPresentSystem", func(t *testing.T) {
 		// Given a flux: system whose install tier legitimately remains while one resources variant
 		// should have been gated off by when: — the system itself must not be reported as excludable
@@ -2192,6 +2217,132 @@ func TestTestRunner_matchFluxSystem(t *testing.T) {
 			t.Errorf("Expected variant when: mismatch diff, got: %v", diffs)
 		}
 	})
+
+	t.Run("ReturnsNoDiffsWhenSecretMatchesRawExpression", func(t *testing.T) {
+		// Given a system whose Secret holds the authored expression, and an expectation of that expression
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"harbor-admin": {
+					Namespaces: []string{"system-registry", "system-gateway"},
+					Type:       "Opaque",
+					Data:       map[string]string{"password": "${registry.admin_password}", "user": "${registry.admin_user}"},
+				},
+			},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"harbor-admin": {
+					Namespaces: []string{"system-registry"},
+					Type:       "Opaque",
+					Data:       map[string]string{"password": "${registry.admin_password}"},
+				},
+			},
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenSecretDataValueMismatches", func(t *testing.T) {
+		// Given a Secret data key whose expression differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${registry.admin_password}"}}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${wrong.path}"}}},
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then one diff should name the data key and both expressions
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin].data[password]: expected \"${wrong.path}\", got \"${registry.admin_password}\"") {
+			t.Errorf("Expected data value mismatch diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenSecretDataKeyMissing", func(t *testing.T) {
+		// Given a Secret that lacks an expected data key
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${p}"}}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"token": "${t}"}}},
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then one diff should report the missing key
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin].data[token]: key not found") {
+			t.Errorf("Expected missing data key diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenSecretMissing", func(t *testing.T) {
+		// Given a system with no Secret of the expected name
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "registry"}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${p}"}}},
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then one diff should report the missing Secret
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin]: secret not found") {
+			t.Errorf("Expected secret-not-found diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenSecretNamespaceAndTypeMismatch", func(t *testing.T) {
+		// Given a Secret placed in another namespace with another type
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "gateway",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"web-tls": {Namespaces: []string{"system-gateway"}, Data: map[string]string{"tls.crt": "${c}"}}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:    "gateway",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"web-tls": {Namespaces: []string{"system-ingress"}, Type: "kubernetes.io/tls"}},
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then one diff should report each field
+		if len(diffs) != 2 ||
+			!strings.Contains(diffs[0], "flux[gateway].secrets[web-tls].namespaces: missing \"system-ingress\"") ||
+			!strings.Contains(diffs[1], "flux[gateway].secrets[web-tls].type: expected \"kubernetes.io/tls\", got \"\"") {
+			t.Errorf("Expected namespace and type diffs, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_matchFluxSystemExclusions(t *testing.T) {
@@ -2244,6 +2395,75 @@ func TestTestRunner_matchFluxSystemExclusions(t *testing.T) {
 
 		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist: ca") {
 			t.Errorf("Expected variant-should-not-exist diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenExcludedSecretExists", func(t *testing.T) {
+		// Given a system that carries a Secret the exclusion names without data:
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${p}"}}},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {}},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		// Then one diff should report the Secret
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin]: should not exist") {
+			t.Errorf("Expected secret-should-not-exist diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenExcludedSecretAbsent", func(t *testing.T) {
+		// Given a system without the excluded Secret
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"other": {Data: map[string]string{"k": "${k}"}}},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {}},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsOnlyExcludedDataKeysThatExist", func(t *testing.T) {
+		// Given a Secret that holds one of two excluded data keys
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "${p}", "user": "${u}"}}},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name:    "registry",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"harbor-admin": {Data: map[string]string{"password": "", "token": ""}}},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		// Then only the present key should be reported
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[registry].secrets[harbor-admin].data: should not contain key \"password\"") {
+			t.Errorf("Expected one excluded-key diff, got: %v", diffs)
 		}
 	})
 }

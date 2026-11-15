@@ -6,6 +6,7 @@ package test
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -125,7 +126,7 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		if found == nil {
 			continue
 		}
-		if excludeSys.Install == nil && len(excludeSys.Resources) == 0 {
+		if excludeSys.Install == nil && len(excludeSys.Resources) == 0 && len(excludeSys.Secrets) == 0 {
 			diffs = append(diffs, fmt.Sprintf("flux system should not exist: %s", excludeSys.Name))
 			continue
 		}
@@ -347,7 +348,8 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 // It checks only the fields that expect sets. Path compares with actual.EffectivePath(), so a fixture
 // without path: still matches. Source, When, Strategy, and DependsOn compare the authored values.
 // Ordinal compares only when expect sets it. GlobalDependency checks only true, because false is the same as unset. Install and Resources use
-// matchKustomization. Enabled and Destroy are not compared, because composition does not evaluate them.
+// matchKustomization. Secrets use matchFluxSecrets. Enabled and Destroy are not compared, because composition
+// does not evaluate them.
 func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expect blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := expect.Name
@@ -412,6 +414,8 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 		diffs = append(diffs, r.matchKustomization(&actualVariant.Kustomization, expectVariant.Kustomization, label)...)
 	}
 
+	diffs = append(diffs, matchFluxSecrets(actual.Secrets, expect.Secrets, name)...)
+
 	return diffs
 }
 
@@ -419,7 +423,7 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 // It checks the install tier when exclude.Install is set, and each resources variant in exclude.Resources.
 // A tier or variant with components: must exist, and only those components must be absent from it.
 // This applies to a variant that findFluxVariant found by name or by components subset.
-// A bare install: or resources variant must be absent as a whole.
+// A bare install: or resources variant must be absent as a whole. Secrets use matchFluxSecretExclusions.
 func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := exclude.Name
@@ -443,6 +447,8 @@ func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSys
 		}
 		diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant should not exist: %s", name, fluxVariantIdentifier(excludeVariant)))
 	}
+
+	diffs = append(diffs, matchFluxSecretExclusions(actual.Secrets, exclude.Secrets, name)...)
 
 	return diffs
 }
@@ -471,6 +477,67 @@ func matchComponentExclusion(actual []string, excludeComponents []string, label 
 	for _, comp := range excludeComponents {
 		if contains(actual, comp) {
 			diffs = append(diffs, fmt.Sprintf("%s.components: should not contain %q", label, comp))
+		}
+	}
+	return diffs
+}
+
+// matchFluxSecrets returns a difference for each expected Secret that is missing or differs from actual.
+// Composition keeps each data value as its authored ${...} expression and resolves it only at apply time.
+// So each expected data value must equal that expression exactly. Each expected namespace must be present.
+// Type compares only when expect sets it. name is the flux system name for the diff label.
+func matchFluxSecrets(actual, expect map[string]blueprintv1alpha1.SecretEntry, name string) []string {
+	var diffs []string
+	for _, secretName := range slices.Sorted(maps.Keys(expect)) {
+		expectEntry := expect[secretName]
+		label := fmt.Sprintf("flux[%s].secrets[%s]", name, secretName)
+		actualEntry, exists := actual[secretName]
+		if !exists {
+			diffs = append(diffs, fmt.Sprintf("%s: secret not found", label))
+			continue
+		}
+		for _, key := range slices.Sorted(maps.Keys(expectEntry.Data)) {
+			actualValue, exists := actualEntry.Data[key]
+			if !exists {
+				diffs = append(diffs, fmt.Sprintf("%s.data[%s]: key not found", label, key))
+				continue
+			}
+			if actualValue != expectEntry.Data[key] {
+				diffs = append(diffs, fmt.Sprintf("%s.data[%s]: expected %q, got %q", label, key, expectEntry.Data[key], actualValue))
+			}
+		}
+		for _, ns := range expectEntry.Namespaces {
+			if !contains(actualEntry.Namespaces, ns) {
+				diffs = append(diffs, fmt.Sprintf("%s.namespaces: missing %q", label, ns))
+			}
+		}
+		if expectEntry.Type != "" && actualEntry.Type != expectEntry.Type {
+			diffs = append(diffs, fmt.Sprintf("%s.type: expected %q, got %q", label, expectEntry.Type, actualEntry.Type))
+		}
+	}
+	return diffs
+}
+
+// matchFluxSecretExclusions returns a difference for each excluded Secret or data key that actual has.
+// An exclude entry without data: means the whole Secret must be absent. An entry with data: means the
+// Secret may exist, but the listed keys must be absent. The runner does not compare the listed values.
+func matchFluxSecretExclusions(actual, exclude map[string]blueprintv1alpha1.SecretEntry, name string) []string {
+	var diffs []string
+	for _, secretName := range slices.Sorted(maps.Keys(exclude)) {
+		actualEntry, exists := actual[secretName]
+		if !exists {
+			continue
+		}
+		label := fmt.Sprintf("flux[%s].secrets[%s]", name, secretName)
+		excludeEntry := exclude[secretName]
+		if len(excludeEntry.Data) == 0 {
+			diffs = append(diffs, fmt.Sprintf("%s: should not exist", label))
+			continue
+		}
+		for _, key := range slices.Sorted(maps.Keys(excludeEntry.Data)) {
+			if _, exists := actualEntry.Data[key]; exists {
+				diffs = append(diffs, fmt.Sprintf("%s.data: should not contain key %q", label, key))
+			}
 		}
 	}
 	return diffs

@@ -91,6 +91,59 @@ $defs:
         description: Kustomizations to assert on.
         items:
           $ref: '#/$defs/kustomizeMatch'
+      flux:
+        type: array
+        description: Flux systems to assert on.
+        items:
+          $ref: '#/$defs/fluxMatch'
+  fluxMatch:
+    type: object
+    description: |
+      Flux system matcher. Selected by 'name'. The other flux system fields,
+      such as path, source, install, and resources, also match with partial
+      semantics. In 'exclude', an entry with only 'name' asserts that the
+      whole system is absent.
+    additionalProperties: true
+    properties:
+      name:
+        type: string
+        description: Flux system name. Used as the match key.
+      secrets:
+        type: object
+        description: |
+          Secrets to assert on, keyed by Secret name. Only the listed Secrets
+          are checked. In 'exclude', a Secret without 'data' MUST be absent.
+        additionalProperties:
+          $ref: '#/$defs/secretMatch'
+  secretMatch:
+    type: object
+    description: |
+      Secret matcher. The composed blueprint holds each data value as its
+      authored ${...} expression, because Windsor resolves Secrets only at
+      apply time. In 'expect', each listed data key MUST be present with the
+      exact expression. In 'exclude', an entry without 'data' asserts that
+      the Secret is absent. An entry with 'data' asserts that each listed
+      key is absent, and Windsor does not compare the values.
+    additionalProperties: false
+    properties:
+      namespaces:
+        type: array
+        items:
+          type: string
+        description: Expected namespaces. Match is 'contains'.
+      data:
+        type: object
+        additionalProperties:
+          type: string
+        description: |
+          Data keys to assert on. Windsor resolves Secrets only at apply
+          time, so the composed blueprint holds each authored ${...}
+          expression. In 'expect', each value MUST equal that expression
+          exactly. In 'exclude', each listed key MUST be absent, and the
+          value is not compared.
+      type:
+        type: string
+        description: Expected Kubernetes Secret type. Asserted only when set.
   terraformMatch:
     type: object
     description: |
@@ -185,3 +238,18 @@ examples:
         expect:
           kustomize:
             - name: addon-dns
+      - name: registry-secret-uses-admin-password
+        expect:
+          flux:
+            - name: registry
+              secrets:
+                harbor-admin:
+                  data:
+                    password: ${registry.admin_password}
+        exclude:
+          flux:
+            - name: registry
+              secrets:
+                harbor-admin:
+                  data:
+                    token: ""

@@ -172,3 +172,50 @@ func TestWindsorTest_OperatorConfigOverrideFixture(t *testing.T) {
 		t.Errorf("expected PASS or ✓ in output: %s", out)
 	}
 }
+
+// TestWindsorTest_FluxSecretsFixture exercises expect.flux[].secrets and exclude.flux[].secrets.
+// Composition keeps each Secret data value as its authored ${...} expression. The case asserts
+// that expression, the Secret's namespace, and the absence of an unset key and an undeclared Secret.
+func TestWindsorTest_FluxSecretsFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-flux-secrets")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "secret_matches_expression"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
+// TestWindsorTest_FluxSecretsMismatchFixture checks that a wrong Secret data expression fails the case.
+func TestWindsorTest_FluxSecretsMismatchFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-flux-secrets")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "secret_value_mismatch"}, env)
+	if err == nil {
+		t.Fatalf("expected windsor test to fail, but it succeeded\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "flux[registry].secrets[harbor-admin].data[password]") {
+		t.Errorf("expected diff to name the Secret data key, got: %s", out)
+	}
+}
+
+// TestWindsorTest_FluxSecretsExcludedFixture checks that an excluded Secret that composes fails the case.
+func TestWindsorTest_FluxSecretsExcludedFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-flux-secrets")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "secret_excluded_but_present"}, env)
+	if err == nil {
+		t.Fatalf("expected windsor test to fail, but it succeeded\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "flux[registry].secrets[harbor-admin]: should not exist") {
+		t.Errorf("expected diff to name the excluded Secret, got: %s", out)
+	}
+}
