@@ -374,6 +374,16 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 	return fmt.Errorf("timeout waiting for kube-apiserver on %s", address)
 }
 
+// GetNodeVersion returns the Talos version of one node, without the leading "v".
+// It loads the talosconfig first, so it works as the first call on a new client. It returns an
+// error when the talosconfig cannot be loaded, the node cannot be reached, or it reports no version.
+func (c *TalosClusterClient) GetNodeVersion(ctx context.Context, nodeAddress string) (string, error) {
+	if err := c.ensureClient(); err != nil {
+		return "", werror.Wrap(err, "failed to initialize Talos client")
+	}
+	return c.getNodeVersion(ctx, nodeAddress)
+}
+
 // Close releases resources held by the TalosClusterClient.
 // It safely closes the underlying Talos gRPC client connection if one exists and sets
 // the client reference to nil to prevent further use. This method is safe to call

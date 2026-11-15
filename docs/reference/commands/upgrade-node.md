@@ -17,6 +17,7 @@ Send an upgrade request to a single Talos node, wait for it to reboot, then veri
 | `--node` | `""` | Node IP address to upgrade. Required. |
 | `--offline-timeout` | `0s` | Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m. |
 | `--reboot-mode` | `default` | Reboot mode: "default" (kexec, fast) or "powercycle" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization). |
+| `--skip-if-current` | `false` | Exit 0 without upgrading when the node already runs the image version. If the version cannot be read, upgrade as usual. |
 | `--timeout` | `0s` | Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m. |
 
 ## Examples
@@ -33,6 +34,9 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 
 # Some platforms don't reliably register kexec as an offline transition; powercycle is slower but more reliable
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --reboot-mode=powercycle
+
+# Do nothing when the node already runs the image version, for example a freshly created node
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --skip-if-current
 ```
 
 ## See also

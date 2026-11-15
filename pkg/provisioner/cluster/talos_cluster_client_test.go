@@ -1579,3 +1579,51 @@ func TestNewShims(t *testing.T) {
 		}
 	})
 }
+
+func TestTalosClusterClient_GetNodeVersion(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		return client
+	}
+
+	t.Run("LoadsConfigOnFirstCall", func(t *testing.T) {
+		// Given a new client that has not loaded the talosconfig
+		client := setup(t)
+		t.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		var configUsed bool
+		client.shims.TalosNewClient = func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
+			configUsed = client.config != nil
+			return &talosclient.Client{}, nil
+		}
+
+		// When the version is read
+		version, err := client.GetNodeVersion(context.Background(), "10.0.0.1")
+
+		// Then the config was loaded before the client was built and the version is returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !configUsed {
+			t.Error("Expected the talosconfig to load before the version read")
+		}
+		if version != "1.0.0" {
+			t.Errorf("Expected version '1.0.0', got '%s'", version)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTalosconfigUnset", func(t *testing.T) {
+		// Given no TALOSCONFIG
+		client := setup(t)
+		t.Setenv("TALOSCONFIG", "")
+
+		// When the version is read
+		_, err := client.GetNodeVersion(context.Background(), "10.0.0.1")
+
+		// Then an error is returned
+		if err == nil || !strings.Contains(err.Error(), "TALOSCONFIG") {
+			t.Errorf("Expected TALOSCONFIG error, got %v", err)
+		}
+	})
+}

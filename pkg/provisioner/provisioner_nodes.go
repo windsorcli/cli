@@ -43,12 +43,25 @@ type NodeHealthCheckOptions struct {
 // UpgradeNode upgrades one node to image. It records the boot ID, sends the upgrade request, waits
 // for the boot ID to change within offlineTimeout, and then waits for the node and its API server.
 // powercycle requests a full reboot instead of kexec, for platforms where kexec does not show as
-// offline. outputFunc receives status messages. It returns an error when a step fails or times out.
-func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
+// offline. When skipIfCurrent is true, it first reads the running version of the node. If that
+// version equals the image tag, it reports this through outputFunc and returns nil without an
+// upgrade request or reboot. If the version cannot be read or the image has no tag, the upgrade
+// proceeds. outputFunc receives status messages. It returns an error when a step fails or times out.
+func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, skipIfCurrent bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
 	}
 	defer i.ClusterClient.Close()
+
+	if skipIfCurrent {
+		target := versionFromImage(image)
+		if current, err := i.ClusterClient.GetNodeVersion(ctx, node); err == nil && target != "" && current == target {
+			if outputFunc != nil {
+				outputFunc(fmt.Sprintf("Node %s is already at version %s. Skipping upgrade.", node, current))
+			}
+			return nil
+		}
+	}
 
 	nodes := []string{node}
 	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
