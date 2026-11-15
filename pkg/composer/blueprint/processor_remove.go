@@ -70,15 +70,20 @@ func (p *BaseBlueprintProcessor) addKustomizationRemoval(collected collectedComp
 // addFluxSystemRemoval records a remove-strategy flux system in collected. It strips the named fields
 // from the collected system with the same name when that system has an equal or lower ordinal. The
 // trace keeps the contributions of the system and of the removal.
-func (p *BaseBlueprintProcessor) addFluxSystemRemoval(collected collectedComponents, system blueprintv1alpha1.FluxSystem, entryKey string) {
+func (p *BaseBlueprintProcessor) addFluxSystemRemoval(collected collectedComponents, system blueprintv1alpha1.FluxSystem, entryKey string) error {
 	system.Strategy = ""
 	r := removal[blueprintv1alpha1.FluxSystem]{item: system, ordinal: ordinalOrZero(system.Ordinal)}
 	r.item.Ordinal = nil
 	if existing := collected.fluxSystemByName[system.Name]; existing != nil && removalApplies(ordinalOrZero(existing.Ordinal), r.ordinal) {
-		*existing = stripFluxSystem(*existing, []blueprintv1alpha1.FluxSystem{r.item})
+		stripped, err := stripFluxSystem(*existing, []blueprintv1alpha1.FluxSystem{r.item})
+		if err != nil {
+			return werror.Wrap(err, "error removing fields from flux system '%s'", system.Name)
+		}
+		*existing = stripped
 	}
 	collected.fluxSystemRemovals[system.Name] = append(collected.fluxSystemRemovals[system.Name], r)
 	p.keepEntryTrace(entryKey)
+	return nil
 }
 
 // keepEntryTrace tells the trace collector to keep all contributions of the entry. A removal changes
@@ -156,15 +161,17 @@ func stripKustomization(k blueprintv1alpha1.Kustomization, removals []blueprintv
 
 // stripFluxSystem returns a copy of sys without the fields that the removals name. It keeps the
 // strategy and ordinal of sys.
-func stripFluxSystem(sys blueprintv1alpha1.FluxSystem, removals []blueprintv1alpha1.FluxSystem) blueprintv1alpha1.FluxSystem {
+func stripFluxSystem(sys blueprintv1alpha1.FluxSystem, removals []blueprintv1alpha1.FluxSystem) (blueprintv1alpha1.FluxSystem, error) {
 	if len(removals) == 0 {
-		return sys
+		return sys, nil
 	}
 	tmp := &blueprintv1alpha1.Blueprint{FluxSystems: []blueprintv1alpha1.FluxSystem{*sys.DeepCopy()}}
 	for _, r := range removals {
-		_ = tmp.RemoveFluxSystem(r)
+		if err := tmp.RemoveFluxSystem(r); err != nil {
+			return sys, err
+		}
 	}
-	return tmp.FluxSystems[0]
+	return tmp.FluxSystems[0], nil
 }
 
 // applyRemovals applies the terraform, kustomization, and flux system removals to target. A removal

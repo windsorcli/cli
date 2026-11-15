@@ -576,10 +576,16 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		}
 		entryKey := traceEntryKey(sn, "flux", system.Name)
 		if strategy == "remove" {
-			p.addFluxSystemRemoval(collected, system, entryKey)
+			if err := p.addFluxSystemRemoval(collected, system, entryKey); err != nil {
+				return err
+			}
 			continue
 		}
-		system = stripFluxSystem(system, removalItems(collected.fluxSystemRemovals[system.Name], effectiveOrdinal))
+		stripped, err := stripFluxSystem(system, removalItems(collected.fluxSystemRemovals[system.Name], effectiveOrdinal))
+		if err != nil {
+			return werror.Wrap(err, "error removing fields from flux system '%s'", system.Name)
+		}
+		system = stripped
 
 		previous := fluxSystemByName[system.Name]
 		if previous == nil {
