@@ -330,3 +330,119 @@ func TestShowBlueprint_RawPreservesDeferredExpressions(t *testing.T) {
 		t.Fatalf("expected raw output to not include <deferred>, got:\n%s", stdout)
 	}
 }
+
+// seedRemovalCoreSource writes the core source of the facet-remove-across-sources fixture to the OCI
+// cache in dir. The core source contributes the cluster terraform component, the web kustomization,
+// and the gateway flux system.
+func seedRemovalCoreSource(t *testing.T, dir string) {
+	t.Helper()
+	seedSourceArtifact(t, dir, "core", "v0.1.0", map[string]string{
+		"metadata.yaml":            "name: core\nversion: v0.1.0\n",
+		"_template/blueprint.yaml": "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: core\n",
+		"_template/facets/web.yaml": "kind: Facet\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: web\n" +
+			"terraform:\n- path: cluster\n  inputs:\n    size: 3\n    debug: true\n" +
+			"kustomize:\n- name: web\n  path: web\n  components:\n  - app\n  - debug\n" +
+			"flux:\n- name: gateway\n  path: gateway\n  install:\n    components:\n    - envoy\n    - envoy-metrics\n",
+	})
+}
+
+// prepareRemovalFixture copies the facet-remove-across-sources fixture, seeds its core source, and
+// runs windsor init. It returns the directory and an environment that selects the local context, which
+// init creates.
+func prepareRemovalFixture(t *testing.T) (string, []string) {
+	t.Helper()
+	dir, env := helpers.CopyFixtureOnly(t, "facet-remove-across-sources")
+	seedRemovalCoreSource(t, dir)
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("windsor init: %v\nstderr: %s", err, stderr)
+	}
+	return dir, append(env, "WINDSOR_CONTEXT=local")
+}
+
+// showClusterInputs runs windsor show blueprint in dir and returns the inputs of the cluster component.
+func showClusterInputs(t *testing.T, dir string, env []string) map[string]any {
+	t.Helper()
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	var bp struct {
+		Terraform []struct {
+			Path   string         `yaml:"path"`
+			Inputs map[string]any `yaml:"inputs"`
+		} `yaml:"terraform"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+	for _, c := range bp.Terraform {
+		if c.Path == "cluster" {
+			return c.Inputs
+		}
+	}
+	t.Fatalf("expected terraform component cluster\nstdout: %s", stdout)
+	return nil
+}
+
+// showKustomizationComponents runs windsor show kustomization name in dir and returns spec.components.
+func showKustomizationComponents(t *testing.T, dir string, env []string, name string) []string {
+	t.Helper()
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", name}, env)
+	if err != nil {
+		t.Fatalf("show kustomization %s: %v\nstderr: %s", name, err, stderr)
+	}
+	var k struct {
+		Spec struct {
+			Components []string `yaml:"components"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	return k.Spec.Components
+}
+
+// A template facet with strategy remove deletes the named fields from the terraform component, the
+// kustomization, and the flux system that the core source contributes.
+func TestShowKustomization_RemovesFieldsThatASourceContributes(t *testing.T) {
+	t.Parallel()
+	dir, env := prepareRemovalFixture(t)
+
+	web := showKustomizationComponents(t, dir, env, "web")
+	if !slices.Contains(web, "app") || slices.Contains(web, "debug") {
+		t.Errorf("expected web components with app and without debug, got %v", web)
+	}
+
+	install := showKustomizationComponents(t, dir, env, "gateway-install")
+	if !slices.Contains(install, "envoy") || slices.Contains(install, "envoy-metrics") {
+		t.Errorf("expected gateway-install components with envoy and without envoy-metrics, got %v", install)
+	}
+
+	inputs := showClusterInputs(t, dir, env)
+	if _, ok := inputs["debug"]; ok || inputs["size"] == nil {
+		t.Errorf("expected cluster inputs with size and without debug, got %v", inputs)
+	}
+}
+
+// A removal whose condition is false leaves the fields that the core source contributes.
+func TestShowKustomization_KeepsSourceFieldsWhenRemovalConditionIsFalse(t *testing.T) {
+	t.Parallel()
+	dir, env := prepareRemovalFixture(t)
+	appendValues(t, dir, "web:\n  strip: false\n")
+
+	web := showKustomizationComponents(t, dir, env, "web")
+	if !slices.Contains(web, "app") || !slices.Contains(web, "debug") {
+		t.Errorf("expected web components with app and debug, got %v", web)
+	}
+
+	install := showKustomizationComponents(t, dir, env, "gateway-install")
+	if !slices.Contains(install, "envoy") || !slices.Contains(install, "envoy-metrics") {
+		t.Errorf("expected gateway-install components with envoy and envoy-metrics, got %v", install)
+	}
+
+	inputs := showClusterInputs(t, dir, env)
+	if inputs["debug"] == nil || inputs["size"] == nil {
+		t.Errorf("expected cluster inputs with size and debug, got %v", inputs)
+	}
+}

@@ -185,6 +185,17 @@ func kustomization(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv1alp
 	return nil
 }
 
+// fluxTier returns the compiled kustomization called name in bp, from a kustomization or a flux
+// system tier, or nil.
+func fluxTier(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
+	for _, k := range bp.AllKustomizations() {
+		if k.Name == name {
+			return &k
+		}
+	}
+	return nil
+}
+
 // component returns the terraform component whose ID is id in bp, or nil.
 func component(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.TerraformComponent {
 	for i := range bp.TerraformComponents {

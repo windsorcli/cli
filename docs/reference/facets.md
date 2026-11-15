@@ -63,7 +63,7 @@ blueprint that references it; see the Composition order reference.
 |------|------|-------------|
 | `ordinal` | `integer` | Per-kustomization override of the facet's ordinal for merge precedence. |
 | `requires` | `array<object>` | Requirement blocks scoped to this kustomization. Evaluated only when the parent facet is active and this kustomization's 'when' holds. |
-| `strategy` | `string` | How this kustomization is merged into the blueprint. 'merge' (default) deep-merges with existing kustomizations matching the same Name; 'replace' overwrites; 'remove' deletes the matching existing kustomization's non-index fields. Remove operations are always applied last. One of: `merge`, `replace`, `remove`. |
+| `strategy` | `string` | How this kustomization is merged into the blueprint. 'merge' (default) deep-merges with existing kustomizations matching the same Name; 'replace' overwrites; 'remove' deletes only the named non-index fields from the matching kustomization. It never deletes the whole kustomization. A merge with a higher ordinal can add a removed field back. See [Composition order](composition-order.md#removals). One of: `merge`, `replace`, `remove`. |
 | `when` | `string` | Expression that gates this kustomization. Empty means the kustomization is always applied when the parent facet matches. |
 
 ### kustomize[].requires[]
@@ -95,7 +95,7 @@ blueprint that references it; see the Composition order reference.
 |------|------|-------------|
 | `ordinal` | `integer` | Per-component override of the facet's ordinal for merge precedence. |
 | `requires` | `array<object>` | Requirement blocks scoped to this component. Evaluated only when the parent facet is active and this component's 'when' holds. |
-| `strategy` | `string` | How this component is merged into the blueprint. 'merge' (default) deep-merges with existing components matching the same Path and Source; 'replace' overwrites; 'remove' deletes the matching existing component's non-index fields. Remove operations are always applied last. One of: `merge`, `replace`, `remove`. |
+| `strategy` | `string` | How this component is merged into the blueprint. 'merge' (default) deep-merges with existing components matching the same Path and Source; 'replace' overwrites; 'remove' deletes only the named non-index fields from the matching component. It never deletes the whole component. A merge with a higher ordinal can add a removed field back. See [Composition order](composition-order.md#removals). One of: `merge`, `replace`, `remove`. |
 | `when` | `string` | Expression that gates this component. Empty means the component is always applied when the parent facet matches. |
 
 ### terraform[].requires[]

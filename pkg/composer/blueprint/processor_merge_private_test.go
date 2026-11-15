@@ -103,47 +103,6 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 	})
 
-	t.Run("AccumulatesRemovalsWhenBothHaveRemoveStrategy", func(t *testing.T) {
-		// Given existing entry with remove strategy
-		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				Strategy:           "remove",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": nil}, DependsOn: []string{"dep1"}},
-			},
-		}
-
-		// When updating with remove strategy
-		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}, DependsOn: []string{"dep2"}},
-		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries, nil)
-
-		// Then removals should be accumulated
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if entries["vpc"].Strategy != "remove" {
-			t.Errorf("Expected strategy 'remove', got '%s'", entries["vpc"].Strategy)
-		}
-		inputs := entries["vpc"].Inputs
-		if inputs == nil {
-			t.Fatal("Expected inputs map to exist")
-		}
-		if _, exists := inputs["key1"]; !exists {
-			t.Error("Expected key1 to be in removal list")
-		}
-		if _, exists := inputs["key2"]; !exists {
-			t.Error("Expected key2 to be in removal list")
-		}
-		deps := entries["vpc"].DependsOn
-		if !contains(deps, "dep1") {
-			t.Error("Expected dep1 to be in removal list")
-		}
-		if !contains(deps, "dep2") {
-			t.Error("Expected dep2 to be in removal list")
-		}
-	})
-
 	t.Run("ReplacesWhenBothHaveReplaceStrategy", func(t *testing.T) {
 		// Given existing entry with replace strategy
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
@@ -278,32 +237,6 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 		if !slices.Contains(entries["vpc"].DependsOn, "base") || !slices.Contains(entries["vpc"].DependsOn, "extra") {
 			t.Errorf("Expected both dependencies to accumulate, got %v", entries["vpc"].DependsOn)
-		}
-	})
-
-	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
-		// Given a higher-ordinal facet already removed this entry
-		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				Strategy:           "remove",
-				Ordinal:            intPtr(100),
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
-			},
-		}
-
-		// When a lower-ordinal facet attempts to merge
-		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			Ordinal:            intPtr(50),
-			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", DependsOn: []string{"extra"}},
-		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
-
-		// Then the remove tombstone is not resurrected
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if entries["vpc"].Strategy != "remove" {
-			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["vpc"].Strategy)
 		}
 	})
 
@@ -504,54 +437,6 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 	})
 
-	t.Run("AccumulatesRemovalsWhenBothHaveRemoveStrategy", func(t *testing.T) {
-		// Given existing entry with remove strategy
-		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
-			"app": {
-				Strategy:      "remove",
-				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": ""}, DependsOn: []string{"dep1"}, Components: []string{"comp1"}},
-			},
-		}
-
-		// When updating with remove strategy
-		new := &blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": ""}, DependsOn: []string{"dep2"}, Components: []string{"comp2"}},
-		}
-		err := processor.updateKustomizationEntry("app", new, "remove", entries, nil)
-
-		// Then removals should be accumulated
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if entries["app"].Strategy != "remove" {
-			t.Errorf("Expected strategy 'remove', got '%s'", entries["app"].Strategy)
-		}
-		subs := entries["app"].Substitutions
-		if subs == nil {
-			t.Fatal("Expected substitutions map to exist")
-		}
-		if _, exists := subs["key1"]; !exists {
-			t.Error("Expected key1 to be in removal list")
-		}
-		if _, exists := subs["key2"]; !exists {
-			t.Error("Expected key2 to be in removal list")
-		}
-		deps := entries["app"].DependsOn
-		if !contains(deps, "dep1") {
-			t.Error("Expected dep1 to be in removal list")
-		}
-		if !contains(deps, "dep2") {
-			t.Error("Expected dep2 to be in removal list")
-		}
-		comps := entries["app"].Components
-		if !contains(comps, "comp1") {
-			t.Error("Expected comp1 to be in removal list")
-		}
-		if !contains(comps, "comp2") {
-			t.Error("Expected comp2 to be in removal list")
-		}
-	})
-
 	t.Run("ReplacesWhenBothHaveReplaceStrategy", func(t *testing.T) {
 		// Given existing entry with replace strategy
 		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
@@ -685,32 +570,6 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 		if !slices.Contains(entries["app"].Components, "base") || !slices.Contains(entries["app"].Components, "extra") {
 			t.Errorf("Expected both components to accumulate, got %v", entries["app"].Components)
-		}
-	})
-
-	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
-		// Given a higher-ordinal facet already removed this entry
-		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
-			"app": {
-				Strategy:      "remove",
-				Ordinal:       intPtr(100),
-				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
-			},
-		}
-
-		// When a lower-ordinal facet attempts to merge
-		new := &blueprintv1alpha1.ConditionalKustomization{
-			Ordinal:       intPtr(50),
-			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Components: []string{"extra"}},
-		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
-
-		// Then the remove tombstone is not resurrected
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if entries["app"].Strategy != "remove" {
-			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["app"].Strategy)
 		}
 	})
 
@@ -1037,33 +896,6 @@ func TestProcessor_updateFluxSystemEntry(t *testing.T) {
 		}
 	})
 
-	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
-		// Given a higher-ordinal facet already removed this system
-		entries := map[string]*blueprintv1alpha1.FluxSystem{
-			"cni": {
-				Name:     "cni",
-				Ordinal:  intPtr(200),
-				Strategy: "remove",
-			},
-		}
-
-		// When a lower-ordinal facet attempts to merge
-		new := &blueprintv1alpha1.FluxSystem{
-			Name:    "cni",
-			Ordinal: intPtr(100),
-			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
-		}
-		err := processor.updateFluxSystemEntry("cni", new, "merge", entries)
-
-		// Then the remove tombstone is not resurrected
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if entries["cni"].Strategy != "remove" {
-			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["cni"].Strategy)
-		}
-	})
-
 	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
 		// Given existing entry with merge strategy and ordinal 50
 		entries := map[string]*blueprintv1alpha1.FluxSystem{
@@ -1108,8 +940,8 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 	mocks := setupProcessorMocks(t)
 	processor := NewBlueprintProcessor(mocks.Runtime)
 
-	t.Run("AppliesReplaceThenMergeThenRemove", func(t *testing.T) {
-		// Given collected components with all strategies
+	t.Run("AppliesRemovalsToTargetEntries", func(t *testing.T) {
+		// Given target entries and collected removals that name some of their fields
 		target := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc", Inputs: map[string]any{"existing": "value", "toRemove": "value"}},
@@ -1119,24 +951,18 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 			},
 		}
 
-		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				Strategy:           "remove",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"toRemove": nil}},
-			},
+		collected := newCollectedComponents()
+		collected.terraformRemovals["vpc"] = []removal[blueprintv1alpha1.TerraformComponent]{
+			{item: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"toRemove": nil}}},
 		}
-
-		kustomizationByName := map[string]*blueprintv1alpha1.ConditionalKustomization{
-			"app": {
-				Strategy:      "remove",
-				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"toRemove": ""}},
-			},
+		collected.kustomizationRemovals["app"] = []removal[blueprintv1alpha1.Kustomization]{
+			{item: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"toRemove": ""}}},
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID, kustomizationByName: kustomizationByName}, nil)
+		err := processor.applyCollectedComponents(target, collected, nil)
 
-		// Then specified fields should be removed (removes are applied last)
+		// Then only the named fields are removed
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1280,19 +1106,17 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 			},
 		}
 
-		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				Strategy:           "remove",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"existing": nil}},
-			},
-			"rds": {
-				Strategy:           "merge",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "rds", Inputs: map[string]any{"new": "value"}},
-			},
+		collected := newCollectedComponents()
+		collected.terraformRemovals["vpc"] = []removal[blueprintv1alpha1.TerraformComponent]{
+			{item: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"existing": nil}}},
+		}
+		collected.terraformByID["rds"] = &blueprintv1alpha1.ConditionalTerraformComponent{
+			Strategy:           "merge",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "rds", Inputs: map[string]any{"new": "value"}},
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
+		err := processor.applyCollectedComponents(target, collected, nil)
 
 		// Then strategies should be applied correctly
 		if err != nil {
@@ -1343,13 +1167,11 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// Finally apply remove
-		terraformByID = map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				Strategy:           "remove",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}},
-			},
+		removals := newCollectedComponents()
+		removals.terraformRemovals["vpc"] = []removal[blueprintv1alpha1.TerraformComponent]{
+			{item: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}}},
 		}
-		err = processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
+		err = processor.applyCollectedComponents(target, removals, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on remove, got %v", err)
 		}
@@ -1642,43 +1464,6 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 		}
 		if entries["vpc"].When != "enabled == true" {
 			t.Errorf("Expected When to be 'enabled == true', got '%s'", entries["vpc"].When)
-		}
-	})
-
-	t.Run("CombinesWhenConditionsForRemoveStrategy", func(t *testing.T) {
-		// Given existing component with when condition
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
-			"vpc": {
-				When:               "enabled1 == true",
-				Strategy:           "remove",
-				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": nil}},
-			},
-		}
-
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"enabled1": true,
-				"enabled2": true,
-			}, nil
-		}
-
-		// When updating with remove strategy
-		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			When:               "enabled2 == true",
-			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}},
-		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries, nil)
-
-		// Then When field should be combined with &&
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		expectedWhen := "(enabled1 == true) && (enabled2 == true)"
-		if entries["vpc"].When != expectedWhen {
-			t.Errorf("Expected When to be '%s', got '%s'", expectedWhen, entries["vpc"].When)
 		}
 	})
 
