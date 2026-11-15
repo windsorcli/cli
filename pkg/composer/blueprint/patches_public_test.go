@@ -191,8 +191,25 @@ func TestPatchPath(t *testing.T) {
 		}
 	})
 
-	t.Run("RemovesAPatchByPathWithoutReadingTheRemoveEntry", func(t *testing.T) {
-		// Given a blueprint patch path, and a facet remove entry with the same path and no file
+	t.Run("RemovesAPatchThatTheRemoveEntryNamesFromAnotherDirectory", func(t *testing.T) {
+		// Given a blueprint patch path, and a facet remove entry that names the same file relative to the facet
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)
+		f.write(t, "contexts/_template/blueprint.yaml", blueprintHeader+"metadata:\n  name: template\nkustomize:\n- name: web\n  path: web\n  patches:\n  - path: patches/web.yaml\n")
+		f.facet(t, "drop", "kustomize:\n- name: web\n  strategy: remove\n  patches:\n  - path: ../patches/web.yaml\n")
+
+		// When the blueprint composes
+		bp := f.mustLoad(t).Generate()
+
+		// Then the remove entry deletes the patch
+		if got := renderedPatches(t, bp, "web"); len(got) != 0 {
+			t.Errorf("expected no patches, got %q", got)
+		}
+	})
+
+	t.Run("KeepsAPatchWhenTheRemoveEntryNamesADifferentFile", func(t *testing.T) {
+		// Given a blueprint patch path, and a facet remove entry whose same string names a missing file next to the facet
 		f := newFixture(t)
 		f.project(t)
 		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)
@@ -202,9 +219,26 @@ func TestPatchPath(t *testing.T) {
 		// When the blueprint composes
 		bp := f.mustLoad(t).Generate()
 
-		// Then the remove entry deletes the patch, and its missing file causes no error
-		if got := renderedPatches(t, bp, "web"); len(got) != 0 {
-			t.Errorf("expected no patches, got %q", got)
+		// Then the patch stays, and the missing file of the remove entry causes no error
+		got := renderedPatches(t, bp, "web")
+		if len(got) != 1 || got[0] != strategicMergePatch {
+			t.Errorf("expected the blueprint patch to stay, got %q", got)
+		}
+	})
+
+	t.Run("SetsPathRelativeToTheSourceRoot", func(t *testing.T) {
+		// Given a facet patch path next to the facet file
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/facets/patches/web.yaml", strategicMergePatch)
+		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n  patches:\n  - path: ./patches/web.yaml\n")
+
+		// When the blueprint composes
+		bp := f.mustLoad(t).Generate()
+
+		// Then the patch Path is relative to the source root, with forward slashes
+		if got := kustomization(bp, "web").Patches[0].Path; got != "facets/patches/web.yaml" {
+			t.Errorf("expected facets/patches/web.yaml, got %q", got)
 		}
 	})
 
