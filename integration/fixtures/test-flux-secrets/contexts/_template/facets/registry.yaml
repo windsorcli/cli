@@ -1,0 +1,18 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: registry
+  description: A flux system that declares one Secret
+
+flux:
+
+- name: registry
+  install:
+    components:
+    - harbor
+  secrets:
+    harbor-admin:
+      namespaces:
+      - system-registry
+      data:
+        password: ${registry.admin_password}
