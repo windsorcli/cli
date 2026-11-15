@@ -6,6 +6,7 @@
 package blueprint
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -27,6 +28,17 @@ const (
 )
 
 // =============================================================================
+// Types
+// =============================================================================
+
+// entryRef locates one entry of one kind in a list of facets, with the effective ordinal of the entry.
+type entryRef struct {
+	facet   int
+	entry   int
+	ordinal int
+}
+
+// =============================================================================
 // Private Methods
 // =============================================================================
 
@@ -41,131 +53,182 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	collected collectedComponents,
 	facetScope map[string]any,
 ) error {
-	terraformByID := collected.terraformByID
 	for _, tc := range facet.TerraformComponents {
-		componentWhen := tc.When
-		if componentWhen == "" && facet.When != "" {
-			componentWhen = facet.When
+		if err := p.collectTerraformComponent(facet, tc, sourceName, collected, facetScope); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
+// collectTerraformComponent collects one terraform component of a facet into collected, by the
+// rules of collectTerraformComponents.
+func (p *BaseBlueprintProcessor) collectTerraformComponent(
+	facet blueprintv1alpha1.Facet,
+	tc blueprintv1alpha1.ConditionalTerraformComponent,
+	sourceName []string,
+	collected collectedComponents,
+	facetScope map[string]any,
+) error {
+	terraformByID := collected.terraformByID
+	componentWhen := tc.When
+	if componentWhen == "" && facet.When != "" {
+		componentWhen = facet.When
+	}
+
+	shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
+	if err != nil {
+		return werror.Wrap(err, "error evaluating terraform component condition")
+	}
+	if !shouldInclude {
+		return nil
+	}
+
+	processed := tc
+	processed.When = componentWhen
+	if processed.Inputs != nil {
+		evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, facetScope, false)
 		if err != nil {
-			return werror.Wrap(err, "error evaluating terraform component condition")
+			return werror.Wrap(err, "error evaluating inputs for component '%s'", processed.GetID())
 		}
-		if !shouldInclude {
-			continue
-		}
-
-		processed := tc
-		processed.When = componentWhen
-		if processed.Inputs != nil {
-			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, facetScope, false)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating inputs for component '%s'", processed.GetID())
-			}
-			normalized := make(map[string]any, len(evaluated))
-			origins := make(map[string]string, len(evaluated))
-			componentID := processed.GetID()
-			for k, v := range evaluated {
-				origins[k] = facet.Path
-				composedPath := "terraform." + componentID + ".inputs." + k
-				if originalVal, exists := processed.Inputs[k]; exists {
-					if s, ok := originalVal.(string); ok && evaluator.ContainsExpression(s) {
-						probe, probeErr := p.evaluator.Evaluate(s, facet.Path, facetScope, false)
-						if probeErr == nil && evaluator.IsDeferredValue(probe) {
-							p.markDeferredPath(composedPath)
-							if expr, ok := evaluator.DeferredExpression(probe); ok {
-								v = expr
-							}
+		normalized := make(map[string]any, len(evaluated))
+		origins := make(map[string]string, len(evaluated))
+		componentID := processed.GetID()
+		for k, v := range evaluated {
+			origins[k] = facet.Path
+			composedPath := "terraform." + componentID + ".inputs." + k
+			if originalVal, exists := processed.Inputs[k]; exists {
+				if s, ok := originalVal.(string); ok && evaluator.ContainsExpression(s) {
+					probe, probeErr := p.evaluator.Evaluate(s, facet.Path, facetScope, false)
+					if probeErr == nil && evaluator.IsDeferredValue(probe) {
+						p.markDeferredPath(composedPath)
+						if expr, ok := evaluator.DeferredExpression(probe); ok {
+							v = expr
 						}
 					}
 				}
-				v = normalizeDeferredValue(v)
-				if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
-					normalized[k] = m
-				} else if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
-					normalized[k] = s
-				} else {
-					normalized[k] = v
-				}
 			}
-			processed.Inputs = normalized
-			processed.InputOrigins = origins
-		}
-		if len(processed.DependsOn) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating dependsOn for component '%s'", processed.GetID())
-			}
-			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
-		}
-		if processed.Destroy != nil && processed.Destroy.IsExpr {
-			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating destroy for component '%s'", processed.GetID())
-			}
-			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
-		}
-		if processed.Parallelism != nil && processed.Parallelism.IsExpr {
-			evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating parallelism for component '%s'", processed.GetID())
-			}
-			processed.Parallelism = &blueprintv1alpha1.IntExpression{Value: evaluated, IsExpr: false}
-		}
-		if processed.Source == "" {
-			processed.Source = resolveSourceName(sourceName)
-		}
-
-		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
-		processed.Ordinal = &effectiveOrdinal
-
-		strategy := processed.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-
-		componentID := processed.GetID()
-		sn := ""
-		if len(sourceName) > 0 {
-			sn = sourceName[0]
-		}
-		entryKey := traceEntryKey(sn, "terraform", componentID)
-		if p.traceCollector != nil {
-			for k, v := range tc.Inputs {
-				composedPath := "terraform." + componentID + ".inputs." + k
-				p.recordTrace(composedPath, TraceContribution{
-					FacetPath:  facet.Path,
-					SourceName: sn,
-					Ordinal:    effectiveOrdinal,
-					Strategy:   strategy,
-					Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
-					RawValue:   deepCopyValue(v),
-					Entry:      entryKey,
-				})
+			v = normalizeDeferredValue(v)
+			if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
+				normalized[k] = m
+			} else if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
+				normalized[k] = s
+			} else {
+				normalized[k] = v
 			}
 		}
-
-		if strategy == "remove" {
-			if err := p.addTerraformRemoval(collected, componentID, processed, entryKey); err != nil {
-				return err
-			}
-			continue
-		}
-		stripped, err := stripTerraformComponent(processed.TerraformComponent, removalItems(collected.terraformRemovals[componentID], effectiveOrdinal))
+		processed.Inputs = normalized
+		processed.InputOrigins = origins
+	}
+	if len(processed.DependsOn) > 0 {
+		evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
 		if err != nil {
-			return werror.Wrap(err, "error removing fields from terraform component '%s'", componentID)
+			return werror.Wrap(err, "error evaluating dependsOn for component '%s'", processed.GetID())
 		}
-		processed.TerraformComponent = stripped
+		processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
+	}
+	if processed.Destroy != nil && processed.Destroy.IsExpr {
+		evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating destroy for component '%s'", processed.GetID())
+		}
+		processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
+	}
+	if processed.Parallelism != nil && processed.Parallelism.IsExpr {
+		evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating parallelism for component '%s'", processed.GetID())
+		}
+		processed.Parallelism = &blueprintv1alpha1.IntExpression{Value: evaluated, IsExpr: false}
+	}
+	if processed.Source == "" {
+		processed.Source = resolveSourceName(sourceName)
+	}
 
-		previous := terraformByID[componentID]
-		if previous == nil {
-			processed.Strategy = strategy
-			terraformByID[componentID] = &processed
-		} else if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID, facetScope); err != nil {
+	effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
+	processed.Ordinal = &effectiveOrdinal
+
+	strategy := processed.Strategy
+	if strategy == "" {
+		strategy = "merge"
+	}
+
+	componentID := processed.GetID()
+	sn := ""
+	if len(sourceName) > 0 {
+		sn = sourceName[0]
+	}
+	entryKey := traceEntryKey(sn, "terraform", componentID)
+	if p.traceCollector != nil {
+		for k, v := range tc.Inputs {
+			composedPath := "terraform." + componentID + ".inputs." + k
+			p.recordTrace(composedPath, TraceContribution{
+				FacetPath:  facet.Path,
+				SourceName: sn,
+				Ordinal:    effectiveOrdinal,
+				Strategy:   strategy,
+				Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
+				RawValue:   deepCopyValue(v),
+				Entry:      entryKey,
+			})
+		}
+	}
+
+	if strategy == "remove" {
+		if err := p.addTerraformRemoval(collected, componentID, processed, entryKey); err != nil {
 			return err
 		}
-		settleEntryTrace(p, entryKey, previous, &processed, terraformByID[componentID])
+		return nil
+	}
+	stripped, err := stripTerraformComponent(processed.TerraformComponent, removalItems(collected.terraformRemovals[componentID], effectiveOrdinal))
+	if err != nil {
+		return werror.Wrap(err, "error removing fields from terraform component '%s'", componentID)
+	}
+	processed.TerraformComponent = stripped
+
+	previous := terraformByID[componentID]
+	if previous == nil {
+		processed.Strategy = strategy
+		terraformByID[componentID] = &processed
+	} else if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID, facetScope); err != nil {
+		return err
+	}
+	settleEntryTrace(p, entryKey, previous, &processed, terraformByID[componentID])
+	return nil
+}
+
+// collectByEntryOrdinal collects the terraform components, kustomizations, and flux systems of the
+// facets of one source into collected. It collects each kind in the order of the effective ordinal
+// of each entry, so a per-entry ordinal moves the entry in the merge. Entries with equal ordinals
+// keep the facet order. Thus each removal gets only the entries with an equal or lower ordinal.
+func (p *BaseBlueprintProcessor) collectByEntryOrdinal(facets []blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, scope map[string]any) error {
+	terraformOrder := entriesByOrdinal(facets,
+		func(f blueprintv1alpha1.Facet) []blueprintv1alpha1.ConditionalTerraformComponent {
+			return f.TerraformComponents
+		},
+		func(e blueprintv1alpha1.ConditionalTerraformComponent) *int { return e.Ordinal })
+	for _, ref := range terraformOrder {
+		facet := facets[ref.facet]
+		if err := p.collectTerraformComponent(facet, facet.TerraformComponents[ref.entry], sourceName, collected, scope); err != nil {
+			return err
+		}
+	}
+	kustomizationOrder := entriesByOrdinal(facets,
+		func(f blueprintv1alpha1.Facet) []blueprintv1alpha1.ConditionalKustomization { return f.Kustomizations },
+		func(e blueprintv1alpha1.ConditionalKustomization) *int { return e.Ordinal })
+	for _, ref := range kustomizationOrder {
+		facet := facets[ref.facet]
+		if err := p.collectKustomization(facet, facet.Kustomizations[ref.entry], sourceName, collected, scope); err != nil {
+			return err
+		}
+	}
+	fluxOrder := entriesByOrdinal(facets,
+		func(f blueprintv1alpha1.Facet) []blueprintv1alpha1.FluxSystem { return f.FluxSystems },
+		func(e blueprintv1alpha1.FluxSystem) *int { return e.Ordinal })
+	for _, ref := range fluxOrder {
+		if err := p.collectFluxSystem(facets[ref.facet], ref.entry, sourceName, collected, scope); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -207,106 +270,112 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 // strips its fields from a merge or replace entry. A kustomization with no when takes the facet
 // condition. When facetScope is not nil, expressions can read config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
-	kustomizationByName := collected.kustomizationByName
 	for _, k := range facet.Kustomizations {
-		componentWhen := k.When
-		if componentWhen == "" && facet.When != "" {
-			componentWhen = facet.When
-		}
-
-		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
-		if err != nil {
-			return werror.Wrap(err, "error evaluating kustomization condition")
-		}
-		if !shouldInclude {
-			continue
-		}
-
-		processed := k
-		processed.When = componentWhen
-		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, kustomizeSubstitutionPrefix(processed.Name), facetScope); err != nil {
-			return werror.Wrap(err, "error evaluating substitutions for kustomization '%s'", processed.Name)
-		}
-		if evaluator.ContainsExpression(processed.Path) {
-			evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating path for kustomization '%s'", processed.Name)
-			}
-			if containsDeferredInValue(evaluatedPath) {
-				expr, _ := evaluator.DeferredExpression(evaluatedPath)
-				return werror.New(fmt.Sprintf("kustomization '%s' path references a value that is not yet available: %s", processed.Name, expr), "Use a kustomization path that Windsor can resolve at compose time.", nil)
-			}
-			if pathStr, ok := evaluatedPath.(string); ok {
-				processed.Path = pathStr
-			} else if evaluatedPath != nil {
-				processed.Path = fmt.Sprintf("%v", evaluatedPath)
-			}
-		}
-		dependsOn, err := p.evalDropEmpty(processed.DependsOn, facet.Path, facetScope)
-		if err != nil {
-			return werror.Wrap(err, "error evaluating dependsOn for kustomization '%s'", processed.Name)
-		}
-		processed.DependsOn = dependsOn
-		if len(processed.Components) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating components for kustomization '%s'", processed.Name)
-			}
-			processed.Components = evaluated
-		}
-		if processed.Destroy != nil && processed.Destroy.IsExpr {
-			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating destroy for kustomization '%s'", processed.Name)
-			}
-			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
-		}
-		if processed.Source == "" {
-			processed.Source = resolveSourceName(sourceName)
-		}
-
-		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
-		processed.Ordinal = &effectiveOrdinal
-
-		strategy := processed.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-
-		sn := ""
-		if len(sourceName) > 0 {
-			sn = sourceName[0]
-		}
-
-		addEntry := func(entry blueprintv1alpha1.ConditionalKustomization) error {
-			entryKey := traceEntryKey(sn, "kustomize", entry.Name)
-			if strategy == "remove" {
-				return p.addKustomizationRemoval(collected, entry, entryKey)
-			}
-			stripped, err := stripKustomization(entry.Kustomization, removalItems(collected.kustomizationRemovals[entry.Name], effectiveOrdinal))
-			if err != nil {
-				return werror.Wrap(err, "error removing fields from kustomization '%s'", entry.Name)
-			}
-			entry.Kustomization = stripped
-			previous := kustomizationByName[entry.Name]
-			if previous == nil {
-				entry.Strategy = strategy
-				stored := new(blueprintv1alpha1.ConditionalKustomization)
-				*stored = entry
-				kustomizationByName[entry.Name] = stored
-			} else if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
-				return err
-			}
-			settleEntryTrace(p, entryKey, previous, &entry, kustomizationByName[entry.Name])
-			return nil
-		}
-
-		p.recordKustomizationTraces(processed.Name, k.Components, mergeSubstitute(k.Kustomization), facet.Path, sn, effectiveOrdinal, strategy)
-		if err := addEntry(processed); err != nil {
+		if err := p.collectKustomization(facet, k, sourceName, collected, facetScope); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// collectKustomization collects one kustomization of a facet into collected, by the rules of
+// collectKustomizations.
+func (p *BaseBlueprintProcessor) collectKustomization(facet blueprintv1alpha1.Facet, k blueprintv1alpha1.ConditionalKustomization, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
+	kustomizationByName := collected.kustomizationByName
+	componentWhen := k.When
+	if componentWhen == "" && facet.When != "" {
+		componentWhen = facet.When
+	}
+
+	shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
+	if err != nil {
+		return werror.Wrap(err, "error evaluating kustomization condition")
+	}
+	if !shouldInclude {
+		return nil
+	}
+
+	processed := k
+	processed.When = componentWhen
+	if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, kustomizeSubstitutionPrefix(processed.Name), facetScope); err != nil {
+		return werror.Wrap(err, "error evaluating substitutions for kustomization '%s'", processed.Name)
+	}
+	if evaluator.ContainsExpression(processed.Path) {
+		evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating path for kustomization '%s'", processed.Name)
+		}
+		if containsDeferredInValue(evaluatedPath) {
+			expr, _ := evaluator.DeferredExpression(evaluatedPath)
+			return werror.New(fmt.Sprintf("kustomization '%s' path references a value that is not yet available: %s", processed.Name, expr), "Use a kustomization path that Windsor can resolve at compose time.", nil)
+		}
+		if pathStr, ok := evaluatedPath.(string); ok {
+			processed.Path = pathStr
+		} else if evaluatedPath != nil {
+			processed.Path = fmt.Sprintf("%v", evaluatedPath)
+		}
+	}
+	dependsOn, err := p.evalDropEmpty(processed.DependsOn, facet.Path, facetScope)
+	if err != nil {
+		return werror.Wrap(err, "error evaluating dependsOn for kustomization '%s'", processed.Name)
+	}
+	processed.DependsOn = dependsOn
+	if len(processed.Components) > 0 {
+		evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating components for kustomization '%s'", processed.Name)
+		}
+		processed.Components = evaluated
+	}
+	if processed.Destroy != nil && processed.Destroy.IsExpr {
+		evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating destroy for kustomization '%s'", processed.Name)
+		}
+		processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
+	}
+	if processed.Source == "" {
+		processed.Source = resolveSourceName(sourceName)
+	}
+
+	effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
+	processed.Ordinal = &effectiveOrdinal
+
+	strategy := processed.Strategy
+	if strategy == "" {
+		strategy = "merge"
+	}
+
+	sn := ""
+	if len(sourceName) > 0 {
+		sn = sourceName[0]
+	}
+
+	addEntry := func(entry blueprintv1alpha1.ConditionalKustomization) error {
+		entryKey := traceEntryKey(sn, "kustomize", entry.Name)
+		if strategy == "remove" {
+			return p.addKustomizationRemoval(collected, entry, entryKey)
+		}
+		stripped, err := stripKustomization(entry.Kustomization, removalItems(collected.kustomizationRemovals[entry.Name], effectiveOrdinal))
+		if err != nil {
+			return werror.Wrap(err, "error removing fields from kustomization '%s'", entry.Name)
+		}
+		entry.Kustomization = stripped
+		previous := kustomizationByName[entry.Name]
+		if previous == nil {
+			entry.Strategy = strategy
+			stored := new(blueprintv1alpha1.ConditionalKustomization)
+			*stored = entry
+			kustomizationByName[entry.Name] = stored
+		} else if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
+			return err
+		}
+		settleEntryTrace(p, entryKey, previous, &entry, kustomizationByName[entry.Name])
+		return nil
+	}
+
+	p.recordKustomizationTraces(processed.Name, k.Components, mergeSubstitute(k.Kustomization), facet.Path, sn, effectiveOrdinal, strategy)
+	return addEntry(processed)
 }
 
 // resolveSourceName returns the explicit source for a facet-derived component: the loader's
@@ -469,133 +538,143 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 // component list never drops an install tier or a resources variant. A resources variant with no
 // Timeout or Interval takes both from the install tier.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
-	fluxSystemByName := collected.fluxSystemByName
-	for systemIndex, system := range facet.FluxSystems {
-		when := system.When
-		if when == "" && facet.When != "" {
-			when = facet.When
-		}
-		shouldInclude, err := p.shouldIncludeComponent(when, facet.Path, facetScope)
-		if err != nil {
-			return werror.Wrap(err, "error evaluating flux system condition")
-		}
-		if !shouldInclude {
-			continue
-		}
-		system.When = when
-		if system.Source == "" {
-			system.Source = resolveSourceName(sourceName)
-		}
-
-		if err := p.validateSystemSecrets(system.Name, system.Secrets); err != nil {
+	for systemIndex := range facet.FluxSystems {
+		if err := p.collectFluxSystem(facet, systemIndex, sourceName, collected, facetScope); err != nil {
 			return err
 		}
-
-		effectiveOrdinal := resolveOrdinal(facet, system.Ordinal)
-		strategy := system.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-
-		deps, err := p.evalDropEmpty(system.DependsOn, facet.Path, facetScope)
-		if err != nil {
-			return werror.Wrap(err, "error evaluating dependsOn for system '%s'", system.Name)
-		}
-		system.DependsOn = deps
-
-		if system.Install != nil {
-			comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating install components for system '%s'", system.Name)
-			}
-			installCopy := *system.Install.DeepCopy()
-			installCopy.Components = comps
-			if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
-				return werror.Wrap(err, "error evaluating install substitutions for system '%s'", system.Name)
-			}
-
-			p.recordFluxTierTraces(system.Name, system.InstallTierName(), []any{"flux", seqIndex(systemIndex), "install"}, *system.Install, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
-			system.Install = &installCopy
-		}
-
-		seenVariants := make(map[string]bool)
-		var evaluatedResources []blueprintv1alpha1.FluxVariant
-		for variantIndex, v := range system.Resources {
-			combined := combineWhen(system.When, v.When)
-			include, err := p.shouldIncludeComponent(combined, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating resources condition for system '%s'", system.Name)
-			}
-			if !include {
-				continue
-			}
-			comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating resources components for system '%s'", system.Name)
-			}
-			variantKey := system.ResourcesTierName(v.Name)
-			if seenVariants[variantKey] {
-				return werror.New(fmt.Sprintf("duplicate resources variant %q in system %q", variantKey, system.Name), "Add a unique name: field to each resources variant.", nil)
-			}
-			seenVariants[variantKey] = true
-
-			evalV := blueprintv1alpha1.FluxVariant{Kustomization: *v.Kustomization.DeepCopy()}
-			if system.Install != nil {
-				if evalV.Timeout == nil {
-					evalV.Timeout = system.Install.Timeout
-				}
-				if evalV.Interval == nil {
-					evalV.Interval = system.Install.Interval
-				}
-			}
-			evalV.Components = comps
-			evalV.When = ""
-
-			extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, facetScope)
-			if err != nil {
-				return werror.Wrap(err, "error evaluating resources dependsOn for system '%s'", system.Name)
-			}
-			evalV.DependsOn = extraDeps
-
-			resourcesDeferredPrefix := fluxResourcesSubstitutionPrefix(system.Name, v.Name)
-			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, resourcesDeferredPrefix, facetScope); err != nil {
-				return werror.Wrap(err, "error evaluating resources substitutions for system '%s'", system.Name)
-			}
-
-			p.recordFluxTierTraces(system.Name, variantKey, []any{"flux", seqIndex(systemIndex), "resources", seqIndex(variantIndex)}, v.Kustomization, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
-			evaluatedResources = append(evaluatedResources, evalV)
-		}
-		system.Resources = evaluatedResources
-		system.Ordinal = &effectiveOrdinal
-		system.Strategy = strategy
-		system.When = ""
-
-		sn := ""
-		if len(sourceName) > 0 {
-			sn = sourceName[0]
-		}
-		entryKey := traceEntryKey(sn, "flux", system.Name)
-		if strategy == "remove" {
-			if err := p.addFluxSystemRemoval(collected, system, entryKey); err != nil {
-				return err
-			}
-			continue
-		}
-		stripped, err := stripFluxSystem(system, removalItems(collected.fluxSystemRemovals[system.Name], effectiveOrdinal))
-		if err != nil {
-			return werror.Wrap(err, "error removing fields from flux system '%s'", system.Name)
-		}
-		system = stripped
-
-		previous := fluxSystemByName[system.Name]
-		if previous == nil {
-			stored := system
-			fluxSystemByName[system.Name] = &stored
-		} else if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
-			return err
-		}
-		settleEntryTrace(p, entryKey, previous, &system, fluxSystemByName[system.Name])
 	}
+	return nil
+}
+
+// collectFluxSystem collects the flux system at systemIndex of a facet into collected, by the rules
+// of collectFluxSystems. The index locates the system in the facet file for the trace.
+func (p *BaseBlueprintProcessor) collectFluxSystem(facet blueprintv1alpha1.Facet, systemIndex int, sourceName []string, collected collectedComponents, facetScope map[string]any) error {
+	fluxSystemByName := collected.fluxSystemByName
+	system := facet.FluxSystems[systemIndex]
+	when := system.When
+	if when == "" && facet.When != "" {
+		when = facet.When
+	}
+	shouldInclude, err := p.shouldIncludeComponent(when, facet.Path, facetScope)
+	if err != nil {
+		return werror.Wrap(err, "error evaluating flux system condition")
+	}
+	if !shouldInclude {
+		return nil
+	}
+	system.When = when
+	if system.Source == "" {
+		system.Source = resolveSourceName(sourceName)
+	}
+
+	if err := p.validateSystemSecrets(system.Name, system.Secrets); err != nil {
+		return err
+	}
+
+	effectiveOrdinal := resolveOrdinal(facet, system.Ordinal)
+	strategy := system.Strategy
+	if strategy == "" {
+		strategy = "merge"
+	}
+
+	deps, err := p.evalDropEmpty(system.DependsOn, facet.Path, facetScope)
+	if err != nil {
+		return werror.Wrap(err, "error evaluating dependsOn for system '%s'", system.Name)
+	}
+	system.DependsOn = deps
+
+	if system.Install != nil {
+		comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating install components for system '%s'", system.Name)
+		}
+		installCopy := *system.Install.DeepCopy()
+		installCopy.Components = comps
+		if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
+			return werror.Wrap(err, "error evaluating install substitutions for system '%s'", system.Name)
+		}
+
+		p.recordFluxTierTraces(system.Name, system.InstallTierName(), []any{"flux", seqIndex(systemIndex), "install"}, *system.Install, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
+		system.Install = &installCopy
+	}
+
+	seenVariants := make(map[string]bool)
+	var evaluatedResources []blueprintv1alpha1.FluxVariant
+	for variantIndex, v := range system.Resources {
+		combined := combineWhen(system.When, v.When)
+		include, err := p.shouldIncludeComponent(combined, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating resources condition for system '%s'", system.Name)
+		}
+		if !include {
+			continue
+		}
+		comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating resources components for system '%s'", system.Name)
+		}
+		variantKey := system.ResourcesTierName(v.Name)
+		if seenVariants[variantKey] {
+			return werror.New(fmt.Sprintf("duplicate resources variant %q in system %q", variantKey, system.Name), "Add a unique name: field to each resources variant.", nil)
+		}
+		seenVariants[variantKey] = true
+
+		evalV := blueprintv1alpha1.FluxVariant{Kustomization: *v.Kustomization.DeepCopy()}
+		if system.Install != nil {
+			if evalV.Timeout == nil {
+				evalV.Timeout = system.Install.Timeout
+			}
+			if evalV.Interval == nil {
+				evalV.Interval = system.Install.Interval
+			}
+		}
+		evalV.Components = comps
+		evalV.When = ""
+
+		extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, facetScope)
+		if err != nil {
+			return werror.Wrap(err, "error evaluating resources dependsOn for system '%s'", system.Name)
+		}
+		evalV.DependsOn = extraDeps
+
+		resourcesDeferredPrefix := fluxResourcesSubstitutionPrefix(system.Name, v.Name)
+		if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, resourcesDeferredPrefix, facetScope); err != nil {
+			return werror.Wrap(err, "error evaluating resources substitutions for system '%s'", system.Name)
+		}
+
+		p.recordFluxTierTraces(system.Name, variantKey, []any{"flux", seqIndex(systemIndex), "resources", seqIndex(variantIndex)}, v.Kustomization, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
+		evaluatedResources = append(evaluatedResources, evalV)
+	}
+	system.Resources = evaluatedResources
+	system.Ordinal = &effectiveOrdinal
+	system.Strategy = strategy
+	system.When = ""
+
+	sn := ""
+	if len(sourceName) > 0 {
+		sn = sourceName[0]
+	}
+	entryKey := traceEntryKey(sn, "flux", system.Name)
+	if strategy == "remove" {
+		if err := p.addFluxSystemRemoval(collected, system, entryKey); err != nil {
+			return err
+		}
+		return nil
+	}
+	stripped, err := stripFluxSystem(system, removalItems(collected.fluxSystemRemovals[system.Name], effectiveOrdinal))
+	if err != nil {
+		return werror.Wrap(err, "error removing fields from flux system '%s'", system.Name)
+	}
+	system = stripped
+
+	previous := fluxSystemByName[system.Name]
+	if previous == nil {
+		stored := system
+		fluxSystemByName[system.Name] = &stored
+	} else if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
+		return err
+	}
+	settleEntryTrace(p, entryKey, previous, &system, fluxSystemByName[system.Name])
 	return nil
 }
 
@@ -665,4 +744,20 @@ func (p *BaseBlueprintProcessor) evalKustomizationSubstitutions(k *blueprintv1al
 		}
 	}
 	return nil
+}
+
+// entriesByOrdinal returns a reference to each entry of one kind in facets, in ascending order of
+// the effective ordinal of the entry. entries returns the entries of one facet, and ordinal returns
+// the per-entry ordinal of one entry, or nil. Entries with equal ordinals keep the facet order.
+func entriesByOrdinal[E any](facets []blueprintv1alpha1.Facet, entries func(blueprintv1alpha1.Facet) []E, ordinal func(E) *int) []entryRef {
+	var refs []entryRef
+	for fi, facet := range facets {
+		for ei, entry := range entries(facet) {
+			refs = append(refs, entryRef{facet: fi, entry: ei, ordinal: resolveOrdinal(facet, ordinal(entry))})
+		}
+	}
+	slices.SortStableFunc(refs, func(a, b entryRef) int {
+		return cmp.Compare(a.ordinal, b.ordinal)
+	})
+	return refs
 }
