@@ -54,6 +54,11 @@ Inside one source, the ordinal decides:
   ordinal, and from the blueprint.yaml of its source.
 - A merge with a higher ordinal can add a removed field back.
 
+An entry `ordinal:` sets the ordinal of that one entry. Windsor merges the
+entries of a source in the order of their own ordinals, so a remove compares
+its ordinal with the ordinal of the entry that added each field. An entry
+`ordinal:` also stays inside its source, as the facet `ordinal:` does.
+
 A remove also applies to the sources that Windsor processes before its own
 source. Thus a facet can remove a kustomize component, a patch, a terraform
 input, a dependency, or an install-tier field that a source contributes.

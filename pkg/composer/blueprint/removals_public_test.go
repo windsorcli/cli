@@ -1,6 +1,7 @@
 package blueprint_test
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -260,6 +261,137 @@ func TestLoadBlueprint_RemovalsInOneSource(t *testing.T) {
 		}
 		if !slices.Equal(k.Components, []string{"envoy"}) {
 			t.Errorf("expected components [envoy], got %v", k.Components)
+		}
+	})
+
+	t.Run("RemovesTerraformInputsUnderAnEntryOrdinalOverride", func(t *testing.T) {
+		// Given a facet that adds input x, a facet that merges input y with entry ordinal 300,
+		// and a facet at ordinal 200 that removes input x
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "a-cluster", "ordinal: 100\nterraform:\n- path: cluster\n  inputs:\n    x: 1\n")
+		f.facet(t, "b-cluster", "ordinal: 150\nterraform:\n- path: cluster\n  ordinal: 300\n  inputs:\n    y: 2\n")
+		f.facet(t, "c-cluster", "ordinal: 200\nterraform:\n- path: cluster\n  strategy: remove\n  inputs:\n    x: null\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the removal strips x, because x comes from the facet at ordinal 100
+		c := component(bp, "cluster")
+		if c == nil {
+			t.Fatal("expected terraform component cluster")
+		}
+		if _, ok := c.Inputs["x"]; ok || c.Inputs["y"] == nil {
+			t.Errorf("expected inputs with y and without x, got %v", c.Inputs)
+		}
+	})
+
+	t.Run("RemovesComponentsUnderAnEntryOrdinalOverride", func(t *testing.T) {
+		// Given a facet that adds component a, a facet that merges component b with entry ordinal
+		// 300, and a facet at ordinal 200 that removes component a
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "a-web", "ordinal: 100\nkustomize:\n- name: web\n  path: web\n  components: [a]\n")
+		f.facet(t, "b-web", "ordinal: 150\nkustomize:\n- name: web\n  ordinal: 300\n  components: [b]\n")
+		f.facet(t, "c-web", "ordinal: 200\nkustomize:\n- name: web\n  strategy: remove\n  components: [a]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the removal strips a, because a comes from the facet at ordinal 100
+		k := kustomization(bp, "web")
+		if k == nil {
+			t.Fatal("expected kustomization web")
+		}
+		if !slices.Equal(k.Components, []string{"b"}) {
+			t.Errorf("expected components [b], got %v", k.Components)
+		}
+	})
+
+	t.Run("RemovesFluxInstallComponentsUnderAnEntryOrdinalOverride", func(t *testing.T) {
+		// Given a facet that adds install component envoy, a facet that merges component debug
+		// with entry ordinal 300, and a facet at ordinal 200 that removes envoy
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "a-gateway", "ordinal: 100\nflux:\n- name: gateway\n  install:\n    components: [envoy]\n")
+		f.facet(t, "b-gateway", "ordinal: 150\nflux:\n- name: gateway\n  ordinal: 300\n  install:\n    components: [debug]\n")
+		f.facet(t, "c-gateway", "ordinal: 200\nflux:\n- name: gateway\n  strategy: remove\n  install:\n    components: [envoy]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the removal strips envoy, because envoy comes from the facet at ordinal 100
+		k := fluxTier(bp, "gateway-install")
+		if k == nil {
+			t.Fatal("expected kustomization gateway-install")
+		}
+		if !slices.Equal(k.Components, []string{"debug"}) {
+			t.Errorf("expected components [debug], got %v", k.Components)
+		}
+	})
+
+	t.Run("KeepsAFieldThatAHigherEntryOrdinalAddsBack", func(t *testing.T) {
+		// Given a facet at ordinal 300 that removes component a, and a facet at ordinal 100 whose
+		// entry ordinal 400 adds component a back
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "a-web", "ordinal: 100\nkustomize:\n- name: web\n  path: web\n  ordinal: 400\n  components: [a]\n")
+		f.facet(t, "b-web", "ordinal: 300\nkustomize:\n- name: web\n  strategy: remove\n  components: [a]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then component a remains, because its entry ordinal is higher than the removal
+		k := kustomization(bp, "web")
+		if k == nil {
+			t.Fatal("expected kustomization web")
+		}
+		if !slices.Equal(k.Components, []string{"a"}) {
+			t.Errorf("expected components [a], got %v", k.Components)
+		}
+	})
+}
+
+func TestLoadBlueprint_EntryOrdinalInADeeperSource(t *testing.T) {
+	t.Run("RanksAnEntryOrdinalAgainstTheFacetOrdinalsOfItsSource", func(t *testing.T) {
+		// Given a template that uses a core source, a template facet at ordinal 100 that adds
+		// component a, and a template facet at ordinal 50 whose entry ordinal 200 replaces it
+		f := newFixture(t)
+		f.withCoreSource(t)
+		f.facet(t, "a-web", "ordinal: 100\nkustomize:\n- name: web\n  path: web\n  components: [a]\n")
+		f.facet(t, "b-web", "ordinal: 50\nkustomize:\n- name: web\n  path: web\n  strategy: replace\n  ordinal: 200\n  components: [b]\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the replace wins, because its entry ordinal is higher than the facet ordinal 100
+		k := kustomization(bp, "web")
+		if k == nil {
+			t.Fatal("expected kustomization web")
+		}
+		if !slices.Equal(k.Components, []string{"b"}) {
+			t.Errorf("expected components [b], got %v", k.Components)
+		}
+	})
+
+	t.Run("KeepsAConfigBlockOrdinalAboveTheFacetsOfAShallowerSource", func(t *testing.T) {
+		// Given a core facet at ordinal 400 that sets config block size to 1, and a template facet
+		// whose block ordinal 300 sets size to 2 and passes size to a terraform input
+		f := newFixture(t)
+		f.withCoreSource(t)
+		f.publishCore(t, "", map[string]string{"size": "ordinal: 400\nconfig:\n- name: size\n  value: 1\n"})
+		f.facet(t, "cluster", "ordinal: 100\nconfig:\n- name: size\n  ordinal: 300\n  value: 2\nterraform:\n- path: cluster\n  inputs:\n    size: ${size}\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the template block wins, because a block ordinal does not cross a source boundary
+		c := component(bp, "cluster")
+		if c == nil {
+			t.Fatal("expected terraform component cluster")
+		}
+		if fmt.Sprint(c.Inputs["size"]) != "2" {
+			t.Errorf("expected input size 2, got %v", c.Inputs["size"])
 		}
 	})
 }

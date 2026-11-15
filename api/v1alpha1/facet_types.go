@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/goccy/go-yaml"
@@ -171,7 +172,8 @@ type ConditionalKustomization struct {
 // =============================================================================
 
 // UnmarshalYAML implements custom unmarshaling. Only name, when, value, strategy, and ordinal are read; value is required.
-// Body is set to {"value": raw["value"]} for merge and evaluation.
+// Body is set to {"value": raw["value"]} for merge and evaluation. The YAML decoder gives a positive
+// integer as uint64, so the ordinal accepts it. An ordinal that is not an integer returns an error.
 func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	var raw map[string]any
 	if err := unmarshal(&raw); err != nil {
@@ -193,9 +195,20 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 		case int64:
 			i := int(v)
 			c.Ordinal = &i
-		case float64:
+		case uint64:
+			if v > math.MaxInt {
+				return fmt.Errorf("config block %q: ordinal %d is too large", c.Name, v)
+			}
 			i := int(v)
 			c.Ordinal = &i
+		case float64:
+			if v != math.Trunc(v) || v > math.MaxInt || v < math.MinInt {
+				return fmt.Errorf("config block %q: ordinal must be an integer, got %v", c.Name, v)
+			}
+			i := int(v)
+			c.Ordinal = &i
+		default:
+			return fmt.Errorf("config block %q: ordinal must be an integer, got %T", c.Name, o)
 		}
 	}
 	if r, ok := raw["requires"]; ok && r != nil {

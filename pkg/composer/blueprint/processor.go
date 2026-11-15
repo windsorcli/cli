@@ -182,6 +182,7 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 // deeper source's config wins for the same key. Derivations resolve against the final merged scope.
 // An operator's explicit raw value always wins over a facet's computed value (resolveConfigAndInclusion).
 // Each source's removals also apply to shallower sources (applyRemovalsToShallowerSources).
+// The per-entry ordinals get the same depth offset as the facet ordinals (shiftEntryOrdinals).
 // It returns the resolved global scope.
 func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
 	p.mu.Lock()
@@ -198,6 +199,7 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 			fc.Source = src.Name
 			eff := resolvedFacetOrdinal(f) + src.Depth*sourceOrdinalStride
 			fc.Ordinal = &eff
+			shiftEntryOrdinals(&fc, src.Depth*sourceOrdinalStride)
 			combined = append(combined, fc)
 		}
 	}
@@ -401,8 +403,9 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 // messages of the included facets to target, with expressions evaluated against the resolved scope.
 // sourceName is the Source of components that have none. Messages stay unevaluated, in facet order;
 // GenerateResolved renders them later, when terraform outputs exist. ProcessGlobally calls it after
-// config and inclusion resolve, so it can emit each source on its own. It returns the
-// terraform, kustomization, and flux system removals of the source.
+// config and inclusion resolve, so it can emit each source on its own. It collects the terraform
+// components, kustomizations, and flux systems in entry ordinal order (collectByEntryOrdinal). It
+// returns the terraform, kustomization, and flux system removals of the source.
 func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) (sourceRemovals, error) {
 	collected := newCollectedComponents()
 	crdRefs := make(map[string]struct{})
@@ -419,15 +422,6 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 					return sourceRemovals{}, werror.Wrap(err, "facet %q", facet.Metadata.Name)
 				}
 			}
-		}
-		if err := p.collectTerraformComponents(facet, sourceName, collected, scope); err != nil {
-			return sourceRemovals{}, err
-		}
-		if err := p.collectKustomizations(facet, sourceName, collected, scope); err != nil {
-			return sourceRemovals{}, err
-		}
-		if err := p.collectFluxSystems(facet, sourceName, collected, scope); err != nil {
-			return sourceRemovals{}, err
 		}
 		for _, ref := range facet.Crds {
 			crdRefs[ref] = struct{}{}
@@ -474,6 +468,10 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 				target.Messages = append(target.Messages, msg)
 			}
 		}
+	}
+
+	if err := p.collectByEntryOrdinal(includedFacets, sourceName, collected, scope); err != nil {
+		return sourceRemovals{}, err
 	}
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))
@@ -590,6 +588,39 @@ func ordinalOrZero(ordinal *int) int {
 		return 0
 	}
 	return *ordinal
+}
+
+// shiftEntryOrdinals adds offset to each per-entry ordinal of facet: the config blocks, terraform
+// components, kustomizations, and flux systems. ProcessGlobally adds the source-depth offset to the
+// facet ordinal, and this keeps the per-entry ordinals on the same scale. It copies each changed list,
+// so the original facet does not change. An offset of 0 changes nothing.
+func shiftEntryOrdinals(facet *blueprintv1alpha1.Facet, offset int) {
+	if offset == 0 {
+		return
+	}
+	shift := func(ordinal *int) *int {
+		if ordinal == nil {
+			return nil
+		}
+		shifted := *ordinal + offset
+		return &shifted
+	}
+	facet.Config = slices.Clone(facet.Config)
+	for i := range facet.Config {
+		facet.Config[i].Ordinal = shift(facet.Config[i].Ordinal)
+	}
+	facet.TerraformComponents = slices.Clone(facet.TerraformComponents)
+	for i := range facet.TerraformComponents {
+		facet.TerraformComponents[i].Ordinal = shift(facet.TerraformComponents[i].Ordinal)
+	}
+	facet.Kustomizations = slices.Clone(facet.Kustomizations)
+	for i := range facet.Kustomizations {
+		facet.Kustomizations[i].Ordinal = shift(facet.Kustomizations[i].Ordinal)
+	}
+	facet.FluxSystems = slices.Clone(facet.FluxSystems)
+	for i := range facet.FluxSystems {
+		facet.FluxSystems[i].Ordinal = shift(facet.FluxSystems[i].Ordinal)
+	}
 }
 
 // resolveOrdinal returns ordinal's value when set, or facet's own default ordinal otherwise.
