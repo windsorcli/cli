@@ -565,8 +565,7 @@ func (l *BaseBlueprintLoader) addFacet(facet blueprintv1alpha1.Facet, path, root
 	return nil
 }
 
-// inlineFacetPatches inlines the patch files of the facet, relative to the facet file. Remove entries
-// get resolved paths only.
+// inlineFacetPatches inlines the patch files of the facet. Remove entries get resolved paths only.
 func (l *BaseBlueprintLoader) inlineFacetPatches(facet *blueprintv1alpha1.Facet, rootDir string) error {
 	baseDir := filepath.Dir(facet.Path)
 	for i := range facet.Kustomizations {
@@ -599,8 +598,8 @@ func (l *BaseBlueprintLoader) inlineFluxSystemPatches(sys *blueprintv1alpha1.Flu
 	return nil
 }
 
-// inlinePatchFiles sets each patch Path relative to rootDir, so remove entries match by Path. Unless
-// resolveOnly is set, it reads each file into Patch. A declared target wins over the file target.
+// inlinePatchFiles sets each patch Path relative to rootDir and, unless resolveOnly, reads the file
+// into Patch.
 func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.BlueprintPatch, baseDir, rootDir string, resolveOnly bool) error {
 	for i := range patches {
 		if patches[i].Path == "" {
@@ -640,7 +639,7 @@ func (l *BaseBlueprintLoader) inlinePatchFiles(patches []blueprintv1alpha1.Bluep
 	return nil
 }
 
-// parsePatchFile parses a patch file. A JSON 6902 file with no kind needs the declared target.
+// parsePatchFile parses a patch file. A JSON 6902 file with no kind needs a declared target.
 func (l *BaseBlueprintLoader) parsePatchFile(data []byte, shownPath string, target *kustomize.Selector) (*blueprintv1alpha1.BlueprintPatch, error) {
 	var doc any
 	if err := l.shims.YamlUnmarshal(data, &doc); err != nil {
@@ -708,8 +707,7 @@ func projectRelativePath(rt *runtime.Runtime, path string) string {
 
 var _ BlueprintLoader = (*BaseBlueprintLoader)(nil)
 
-// resolvePatchPath returns the full and the rootDir-relative location of path. It rejects a path
-// that is absolute or outside rootDir.
+// resolvePatchPath resolves path in baseDir and rejects a result outside rootDir.
 func resolvePatchPath(path, baseDir, rootDir string) (string, string, error) {
 	if filepath.IsAbs(path) {
 		return "", "", werror.New(fmt.Sprintf("Patch path %q is absolute", path),

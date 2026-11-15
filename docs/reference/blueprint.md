@@ -112,9 +112,9 @@ shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
-| `target` | `object` | Selector for the patch (kind / name / namespace). |
+| `patch` | `string` |  |
+| `path` | `string` |  |
+| `target` | `object` |  |
 
 ### flux[].resources[]
 
@@ -180,9 +180,9 @@ shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
-| `target` | `object` | Selector for the patch (kind / name / namespace). |
+| `patch` | `string` |  |
+| `path` | `string` |  |
+| `target` | `object` |  |
 
 ### flux[].secrets{}
 
@@ -209,7 +209,7 @@ shared across them.
 | `healthChecks` | `array<object>` | External resources to wait on before Ready, such as one a HelmRelease this kustomization applies creates indirectly. Any entry here disables 'wait' over this kustomization's own applied resources; it waits only on the resources named here instead. |
 | `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to 1m when source is unset (falls back to the blueprint's own repository, presumed live and actively pushed); defaults to 1h when source names a vendor entry (presumed pinned and explicitly re-triggered rather than continuously tracked). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
-| `patches` | `array<object>` | Strategic merge or JSON 6902 patches for the kustomization. Each entry takes one of two forms. A 'path:' entry names a patch file. A 'patch:' entry holds an inline YAML body, with an optional 'target:' selector (kind / name / namespace). |
+| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry takes one of two forms: a 'path:' to a patch file relative to the file that declares it, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
 | `path` | `string` | Path within the source containing the kustomize base. Defaults to name. |
 | `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
 | `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
@@ -257,8 +257,8 @@ shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `patch` | `string` | Inline patch body as YAML (Flux format). |
-| `path` | `string` | Path to a patch file, relative to the directory of the file that declares the patch (blueprint.yaml or the facet file). Windsor reads the file during composition and puts its content in the Flux Kustomization. A strategic merge file and a JSON 6902 file both work. A JSON 6902 file supplies the target from its kind and metadata, unless the entry sets 'target:'. The path must stay inside the blueprint source. Composition fails when the file does not exist. A 'strategy: remove' entry matches a patch that names the same file. A JSON 6902 file with no kind, or a bare operation list, needs 'target:' on the entry. Do not set 'path:' and 'patch:' together. |
-| `target` | `object` | Selector for the patch (kind / name / namespace). |
+| `path` | `string` | Path to a patch file, relative to the file that declares it. A JSON 6902 file with no kind needs 'target:'. |
+| `target` | `object` | Selector for the patch (Flux format). Used with 'patch:'. |
 
 ## messages[]
 

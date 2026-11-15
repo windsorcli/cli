@@ -234,33 +234,23 @@ properties:
         patches:
           type: array
           description: |
-            Strategic merge or JSON 6902 patches for the kustomization. Each
-            entry takes one of two forms. A 'path:' entry names a patch file.
-            A 'patch:' entry holds an inline YAML body, with an optional
-            'target:' selector (kind / name / namespace).
+            Strategic-merge or Flux-style patches applied to the kustomization.
+            Each entry takes one of two forms: a 'path:' to a patch file
+            relative to the file that declares it, or a 'patch:' inline YAML body with
+            an optional 'target:' selector (kind / name / namespace).
           items:
             type: object
             additionalProperties: false
             properties:
               path:
                 type: string
-                description: |
-                  Path to a patch file, relative to the directory of the file that
-                  declares the patch (blueprint.yaml or the facet file). Windsor reads
-                  the file during composition and puts its content in the Flux
-                  Kustomization. A strategic merge file and a JSON 6902 file both work.
-                  A JSON 6902 file supplies the target from its kind and metadata,
-                  unless the entry sets 'target:'. The path must stay inside the
-                  blueprint source. Composition fails when the file does not exist.
-                  A 'strategy: remove' entry matches a patch that names the same file.
-                  A JSON 6902 file with no kind, or a bare operation list, needs
-                  'target:' on the entry. Do not set 'path:' and 'patch:' together.
+                description: Path to a patch file, relative to the file that declares it. A JSON 6902 file with no kind needs 'target:'.
               patch:
                 type: string
                 description: Inline patch body as YAML (Flux format).
               target:
                 type: object
-                description: Selector for the patch (kind / name / namespace).
+                description: Selector for the patch (Flux format). Used with 'patch:'.
                 additionalProperties: true
         wait:
           type: boolean
@@ -480,23 +470,10 @@ properties:
                 properties:
                   path:
                     type: string
-                    description: |
-                      Path to a patch file, relative to the directory of the file that
-                      declares the patch (blueprint.yaml or the facet file). Windsor reads
-                      the file during composition and puts its content in the Flux
-                      Kustomization. A strategic merge file and a JSON 6902 file both work.
-                      A JSON 6902 file supplies the target from its kind and metadata,
-                      unless the entry sets 'target:'. The path must stay inside the
-                      blueprint source. Composition fails when the file does not exist.
-                      A 'strategy: remove' entry matches a patch that names the same file.
-                      A JSON 6902 file with no kind, or a bare operation list, needs
-                      'target:' on the entry. Do not set 'path:' and 'patch:' together.
                   patch:
                     type: string
-                    description: Inline patch body as YAML (Flux format).
                   target:
                     type: object
-                    description: Selector for the patch (kind / name / namespace).
                     additionalProperties: true
             wait:
               type: boolean
@@ -653,23 +630,10 @@ properties:
                   properties:
                     path:
                       type: string
-                      description: |
-                        Path to a patch file, relative to the directory of the file that
-                        declares the patch (blueprint.yaml or the facet file). Windsor reads
-                        the file during composition and puts its content in the Flux
-                        Kustomization. A strategic merge file and a JSON 6902 file both work.
-                        A JSON 6902 file supplies the target from its kind and metadata,
-                        unless the entry sets 'target:'. The path must stay inside the
-                        blueprint source. Composition fails when the file does not exist.
-                        A 'strategy: remove' entry matches a patch that names the same file.
-                        A JSON 6902 file with no kind, or a bare operation list, needs
-                        'target:' on the entry. Do not set 'path:' and 'patch:' together.
                     patch:
                       type: string
-                      description: Inline patch body as YAML (Flux format).
                     target:
                       type: object
-                      description: Selector for the patch (kind / name / namespace).
                       additionalProperties: true
               wait:
                 type: boolean

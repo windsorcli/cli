@@ -73,7 +73,7 @@ func TestPatchPath(t *testing.T) {
 	})
 
 	t.Run("InlinesAUserBlueprintPatchFileRelativeToTheContext", func(t *testing.T) {
-		// Given a template kustomization, and a user blueprint that patches it from the context directory
+		// Given a user blueprint that patches a template kustomization
 		f := newFixture(t)
 		f.project(t)
 		f.facet(t, "web", "kustomize:\n- name: web\n  path: web\n")
@@ -192,7 +192,7 @@ func TestPatchPath(t *testing.T) {
 	})
 
 	t.Run("RemovesAPatchThatTheRemoveEntryNamesFromAnotherDirectory", func(t *testing.T) {
-		// Given a blueprint patch path, and a facet remove entry that names the same file relative to the facet
+		// Given a facet remove entry that names the blueprint patch file
 		f := newFixture(t)
 		f.project(t)
 		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)
@@ -209,7 +209,7 @@ func TestPatchPath(t *testing.T) {
 	})
 
 	t.Run("RemovesByPathWhenTheRemoveEntryAlsoSetsPatch", func(t *testing.T) {
-		// Given a blueprint patch path, and a facet remove entry that sets the same file and inline content
+		// Given a facet remove entry that sets the blueprint patch file and inline content
 		f := newFixture(t)
 		f.project(t)
 		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)
@@ -226,7 +226,7 @@ func TestPatchPath(t *testing.T) {
 	})
 
 	t.Run("KeepsAPatchWhenTheRemoveEntryNamesADifferentFile", func(t *testing.T) {
-		// Given a blueprint patch path, and a facet remove entry whose same string names a missing file next to the facet
+		// Given a facet remove entry with the same path string, which names a different file
 		f := newFixture(t)
 		f.project(t)
 		f.write(t, "contexts/_template/patches/web.yaml", strategicMergePatch)

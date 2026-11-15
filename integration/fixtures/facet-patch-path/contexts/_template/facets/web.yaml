@@ -2,7 +2,7 @@ kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: web
-  description: Declares a kustomization and a flux install tier that each patch from a file next to the facet
+  description: Patches a kustomization and a flux install tier from files
 
 kustomize:
 - name: web
