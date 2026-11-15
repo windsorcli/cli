@@ -7,6 +7,7 @@ package config
 
 import (
 	"crypto/rand"
+	"path/filepath"
 
 	"github.com/goccy/go-yaml"
 
@@ -21,6 +22,7 @@ import (
 type Shims struct {
 	shims.Shims
 	YamlUnmarshalStrict func(data []byte, v any) error
+	EvalSymlinks        func(path string) (string, error)
 	CryptoRandRead      func([]byte) (int, error)
 }
 
@@ -35,6 +37,7 @@ func NewShims() *Shims {
 		YamlUnmarshalStrict: func(data []byte, v any) error {
 			return yaml.UnmarshalWithOptions(data, v, yaml.Strict())
 		},
+		EvalSymlinks:   filepath.EvalSymlinks,
 		CryptoRandRead: rand.Read,
 	}
 }

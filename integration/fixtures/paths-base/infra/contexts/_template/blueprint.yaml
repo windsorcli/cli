@@ -1,0 +1,10 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: paths-base
+  description: Project paths integration fixture
+terraform:
+  - path: "null"
+kustomize:
+  - name: app
+    path: app

@@ -228,7 +228,7 @@ func (m *Migrator) planContext(projectRoot, rootPath, name string, rootEntry map
 	}
 	mapProvider(source, origin)
 
-	valuesPath := filepath.Join(projectRoot, "contexts", name, "values.yaml")
+	valuesPath := filepath.Join(m.basePath(projectRoot), "contexts", name, "values.yaml")
 	existing, valuesExist, err := m.readMap(valuesPath)
 	if err != nil {
 		return err
@@ -275,10 +275,24 @@ func (m *Migrator) readMap(path string) (map[string]any, bool, error) {
 	return values, true, nil
 }
 
+// basePath returns the directory that holds the contexts directory: paths.base of the root file, or
+// projectRoot when the root file sets none. The config loader validates paths.base, so this method does not.
+func (m *Migrator) basePath(projectRoot string) string {
+	data, err := m.shims.ReadFile(filepath.Join(projectRoot, "windsor.yaml"))
+	if err != nil {
+		return projectRoot
+	}
+	var root v1alpha2.Root
+	if err := m.shims.YamlUnmarshal(data, &root); err != nil || root.Version != v1alpha2.Version || root.Paths == nil || root.Paths.Base == "" {
+		return projectRoot
+	}
+	return filepath.Join(projectRoot, filepath.FromSlash(root.Paths.Base))
+}
+
 // contextFilePath returns the windsor.yaml or windsor.yml of a context, when one exists.
 func (m *Migrator) contextFilePath(projectRoot, name string) (string, bool) {
 	for _, file := range []string{"windsor.yaml", "windsor.yml"} {
-		path := filepath.Join(projectRoot, "contexts", name, file)
+		path := filepath.Join(m.basePath(projectRoot), "contexts", name, file)
 		if _, err := m.shims.Stat(path); err == nil {
 			return path, true
 		}
@@ -299,7 +313,7 @@ func (m *Migrator) contextFiles(projectRoot string) []string {
 
 // contextDirs lists the directories under contexts/ that are not templates, in name order.
 func (m *Migrator) contextDirs(projectRoot string) []string {
-	entries, err := m.shims.ReadDir(filepath.Join(projectRoot, "contexts"))
+	entries, err := m.shims.ReadDir(filepath.Join(m.basePath(projectRoot), "contexts"))
 	if err != nil {
 		return nil
 	}

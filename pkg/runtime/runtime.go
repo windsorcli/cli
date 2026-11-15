@@ -8,6 +8,7 @@ package runtime
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -34,10 +35,13 @@ type Runtime struct {
 	// ProjectRoot is the project root directory path
 	ProjectRoot string
 
-	// ConfigRoot is the config root directory (<projectRoot>/contexts/<contextName>)
+	// BasePath is the directory that holds the terraform, kustomize, and contexts directories
+	BasePath string
+
+	// ConfigRoot is the config root directory (<base>/contexts/<contextName>)
 	ConfigRoot string
 
-	// TemplateRoot is the template directory (<projectRoot>/contexts/_template)
+	// TemplateRoot is the template directory (<base>/contexts/_template)
 	TemplateRoot string
 
 	// WindsorScratchPath is the windsor scratch directory (<projectRoot>/.windsor/contexts/<contextName>)
@@ -112,6 +116,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		}
 		if overrides.ContextName != "" {
 			rt.ContextName = overrides.ContextName
+		}
+		if overrides.BasePath != "" {
+			rt.BasePath = overrides.BasePath
 		}
 		if overrides.ProjectRoot != "" {
 			rt.ProjectRoot = overrides.ProjectRoot
@@ -206,6 +213,12 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		rt.aliases = make(map[string]string)
 	}
 
+	if rt.BasePath == "" {
+		if basePath, err := rt.ConfigHandler.GetBasePath(); err == nil {
+			rt.BasePath = basePath
+		}
+	}
+
 	contextName := rt.ConfigHandler.GetContext()
 	if rt.ContextName == "" {
 		rt.ContextName = contextName
@@ -215,10 +228,10 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 	}
 
 	if rt.ConfigRoot == "" {
-		rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", rt.ContextName)
+		rt.ConfigRoot = filepath.Join(rt.Base(), "contexts", rt.ContextName)
 	}
 	if rt.TemplateRoot == "" {
-		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
+		rt.TemplateRoot = filepath.Join(rt.Base(), "contexts", "_template")
 	}
 
 	if rt.Evaluator == nil {
@@ -234,6 +247,25 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// Base returns the base directory of the project. It is ProjectRoot when the runtime has no
+// BasePath, or when BasePath is outside ProjectRoot.
+func (rt *Runtime) Base() string {
+	if rel, err := filepath.Rel(rt.ProjectRoot, rt.BasePath); rt.BasePath == "" || err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rt.ProjectRoot
+	}
+	return rt.BasePath
+}
+
+// BaseRel returns the base directory relative to ProjectRoot, with forward slashes. It is empty when
+// the base is ProjectRoot.
+func (rt *Runtime) BaseRel() string {
+	rel, err := filepath.Rel(rt.ProjectRoot, rt.Base())
+	if err != nil || rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
 
 // InitializeComponents initializes all environment-related components required after setup.
 // Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.

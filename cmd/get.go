@@ -57,7 +57,14 @@ var getContextsCmd = &cobra.Command{
 			return werror.Wrap(err, "failed to get project root")
 		}
 
-		contextsDir := filepath.Join(projectRoot, "contexts")
+		basePath, err := rt.ConfigHandler.GetBasePath()
+		if err != nil {
+			return err
+		}
+		if basePath == "" {
+			basePath = projectRoot
+		}
+		contextsDir := filepath.Join(basePath, "contexts")
 		entries, err := os.ReadDir(contextsDir)
 		if err != nil {
 			if os.IsNotExist(err) {

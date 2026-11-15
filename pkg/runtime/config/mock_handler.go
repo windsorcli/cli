@@ -31,6 +31,7 @@ type MockConfigHandler struct {
 	SetContextFunc              func(context string) error
 	GetConfigRootFunc           func() (string, error)
 	GetWindsorScratchPathFunc   func() (string, error)
+	GetBasePathFunc             func() (string, error)
 	CleanFunc                   func() error
 	GenerateContextIDFunc       func() error
 	IsNewContextFunc            func() (bool, error)
@@ -245,6 +246,14 @@ func (m *MockConfigHandler) GetConfigRoot() (string, error) {
 		return m.GetConfigRootFunc()
 	}
 	return "mock-config-root", nil
+}
+
+// GetBasePath calls the mock GetBasePathFunc if set, otherwise returns an empty path
+func (m *MockConfigHandler) GetBasePath() (string, error) {
+	if m.GetBasePathFunc != nil {
+		return m.GetBasePathFunc()
+	}
+	return "", nil
 }
 
 // GetWindsorScratchPath calls the mock GetWindsorScratchPathFunc if set, otherwise returns a reasonable default string

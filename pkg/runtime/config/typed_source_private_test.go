@@ -50,7 +50,7 @@ contexts:
 			t.Fatalf("Expected no error writing root config, got %v", err)
 		}
 
-		contextMap, found, err := source.LoadRoot(projectRoot, "local")
+		contextMap, found, err := source.LoadRoot(projectRoot, projectRoot, "local")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -76,7 +76,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 				t.Fatalf("Expected no error writing %s, got %v", path, err)
 			}
 		}
-		return newTypedSource(NewShims()).LoadRoot(projectRoot, "local")
+		return newTypedSource(NewShims()).LoadRoot(projectRoot, projectRoot, "local")
 	}
 
 	t.Run("LoadsV1alpha1RootWithContextsAndTerraformDriver", func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 
 	t.Run("LoadsFullV1alpha2Root", func(t *testing.T) {
 		_, found, err := load(t, map[string]string{
-			"windsor.yaml": "version: v1alpha2\nenvironment:\n  AWS_DEFAULT_REGION: us-east-2\npaths:\n  terraform: infra/terraform\n  kustomize: infra/kustomize\n  contexts: infra/contexts\n",
+			"windsor.yaml": "version: v1alpha2\nenvironment:\n  AWS_DEFAULT_REGION: us-east-2\npaths:\n  base: infra\n",
 		})
 		if err != nil || !found {
 			t.Fatalf("Expected the root to load, got found=%v err=%v", found, err)
@@ -141,7 +141,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte("version: v1alpha2\n"), 0644); err != nil {
 			t.Fatalf("Expected no error writing the root, got %v", err)
 		}
-		_, found, err := newTypedSource(NewShims()).LoadRoot(projectRoot, "local")
+		_, found, err := newTypedSource(NewShims()).LoadRoot(projectRoot, projectRoot, "local")
 		if err != nil || !found {
 			t.Fatalf("Expected the root to load, got found=%v err=%v", found, err)
 		}
@@ -160,7 +160,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		{"EnvironmentNotAMap", map[string]string{"windsor.yaml": "version: v1alpha2\nenvironment: [a]\n"}, []string{"windsor.yaml", "environment"}},
 		{"PathsNotAnObject", map[string]string{"windsor.yaml": "version: v1alpha2\npaths: infra\n"}, []string{"windsor.yaml", "paths"}},
 		{"PathsUnknownKey", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  state: x\n"}, []string{"windsor.yaml", `"state"`}},
-		{"PathsValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  terraform: [a]\n"}, []string{"windsor.yaml", "terraform: [a]"}},
+		{"PathsValueNotAString", map[string]string{"windsor.yaml": "version: v1alpha2\npaths:\n  base: [a]\n"}, []string{"windsor.yaml", "base: [a]"}},
 		{"ContextWindsorYaml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yaml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yaml"), "windsor migrate"}},
 		{"ContextWindsorYml", map[string]string{"windsor.yaml": "version: v1alpha2\n", "contexts/prod/windsor.yml": "platform: aws\n"}, []string{filepath.Join("contexts", "prod", "windsor.yml"), "windsor migrate"}},
 	}

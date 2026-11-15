@@ -99,7 +99,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 
 // isTemplateSource reports whether source is an absolute path under contexts/_template or <project root>/terraform.
 func (h *StandardModuleResolver) isTemplateSource(source string) bool {
-	return filepath.IsAbs(source) && (strings.Contains(source, filepath.Join("contexts", "_template")) || strings.HasPrefix(source, filepath.Join(h.runtime.ProjectRoot, "terraform")))
+	return filepath.IsAbs(source) && (strings.Contains(source, filepath.Join("contexts", "_template")) || strings.HasPrefix(source, filepath.Join(h.runtime.Base(), "terraform")))
 }
 
 // processTemplateComponent writes a shim at FullPath that points to the template module at the component source.
@@ -251,7 +251,7 @@ func (h *StandardModuleResolver) processLocalComponent(component blueprintv1alph
 	}
 
 	moduleDir := component.FullPath
-	actualModulePath := filepath.Join(h.runtime.ProjectRoot, "terraform", component.Path)
+	actualModulePath := filepath.Join(h.runtime.Base(), "terraform", component.Path)
 
 	relPath, err := h.shims.FilepathRel(moduleDir, actualModulePath)
 	if err != nil {

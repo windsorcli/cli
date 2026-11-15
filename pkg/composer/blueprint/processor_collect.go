@@ -33,7 +33,7 @@ const (
 // collectTerraformComponents collects the terraform components of a facet into terraformByID. It
 // evaluates the when condition, inputs, and source of each component, and merges entries by strategy.
 // A component with no when takes the facet condition. When facetScope is not nil, expressions can read
-// config block values. Evaluation errors return.
+// config block values. Evaluation errors return. It records input traces only with a trace collector.
 func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	facet blueprintv1alpha1.Facet,
 	sourceName []string,
@@ -129,17 +129,19 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			sn = sourceName[0]
 		}
 		entryKey := traceEntryKey(sn, "terraform", componentID)
-		for k, v := range tc.Inputs {
-			composedPath := "terraform." + componentID + ".inputs." + k
-			p.recordTrace(composedPath, TraceContribution{
-				FacetPath:  facet.Path,
-				SourceName: sn,
-				Ordinal:    effectiveOrdinal,
-				Strategy:   strategy,
-				Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
-				RawValue:   deepCopyValue(v),
-				Entry:      entryKey,
-			})
+		if p.traceCollector != nil {
+			for k, v := range tc.Inputs {
+				composedPath := "terraform." + componentID + ".inputs." + k
+				p.recordTrace(composedPath, TraceContribution{
+					FacetPath:  facet.Path,
+					SourceName: sn,
+					Ordinal:    effectiveOrdinal,
+					Strategy:   strategy,
+					Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
+					RawValue:   deepCopyValue(v),
+					Entry:      entryKey,
+				})
+			}
 		}
 
 		previous := terraformByID[componentID]
@@ -155,8 +157,11 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 }
 
 // recordKustomizationTraces records the source of each substitution and component of a kustomization,
-// so `windsor explain` can name the facet, source, and line of each value.
+// so `windsor explain` can name the facet, source, and line of each value. It does nothing without a collector.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
+	if p.traceCollector == nil {
+		return
+	}
 	entryKey := traceEntryKey(sourceName, "kustomize", name)
 	for sk, sv := range rawSubstitutions {
 		p.recordTrace(kustomizeSubstitutionPrefix(name)+sk, TraceContribution{
