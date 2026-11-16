@@ -1,8 +1,6 @@
 name-template: 'v$RESOLVED_VERSION'
 tag-template: 'v$RESOLVED_VERSION'
 categories:
-  - title: 'Breaking Changes'
-    label: 'breaking'
   - title: 'Features'
     label: 'feature'
   - title: 'Bug Fixes'
@@ -11,6 +9,9 @@ categories:
     label: 'documentation'
   - title: 'Maintenance'
     label: 'chore'
+  - title: 'Dependencies'
+    collapse-after: 3
+    label: 'dependencies'
 change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 change-title-escapes: '\<*_&'
 version-resolver:
@@ -25,6 +26,7 @@ version-resolver:
       - 'bug'
       - 'chore'
       - 'documentation'
+      - 'dependencies'
   default: patch
 template: |
   ## Changes

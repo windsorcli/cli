@@ -42,6 +42,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action != 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
+      !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
       !github.event.pull_request.draft
     outputs:
       pr_number: ${{ github.event.pull_request.number }}
@@ -249,6 +250,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action == 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
+      !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
       !github.event.pull_request.draft
     permissions:
       contents: read

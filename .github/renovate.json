@@ -51,7 +51,7 @@
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "labels": [
-        "chore"
+        "dependencies"
       ]
     },
     {
@@ -63,7 +63,8 @@
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "labels": [
-        "chore"
+        "go",
+        "dependencies"
       ]
     },
     {
@@ -83,7 +84,7 @@
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "labels": [
-        "chore"
+        "dependencies"
       ]
     }
   ],
@@ -125,7 +126,7 @@
     }
   ],
   "labels": [
-    "chore"
+    "dependencies"
   ],
   "postUpdateOptions": [
     "gomodTidy"
