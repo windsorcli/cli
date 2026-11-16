@@ -19,17 +19,17 @@ When no backend component exists, bootstrap falls through to a single apply agai
 
 Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.
 
-Pass --to to stop after one terraform component or kustomization, for example to do a manual step. Bootstrap then prints the command that continues. Run 'windsor bootstrap --continue' to skip the finished terraform components and run the rest, with no prompt. A stopped bootstrap writes no version marker. The backend components run as one unit, so --to accepts only the last of them.
+Pass --to to stop after a terraform component or kustomization. Run 'windsor bootstrap --continue' to resume. The backend components run as one unit, so --to accepts only the last one.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--blueprint` | `""` | Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required. |
-| `--continue` | `false` | Continue a run that --to stopped, and skip the terraform components that it finished. |
+| `--continue` | `false` | Resume a run that --to stopped. |
 | `--platform` | `""` | Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
-| `--to` | `""` | Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> when a name matches both. |
+| `--to` | `""` | Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> if a name matches both. |
 | `-y`, `--yes` | `false` | Skip all confirmation prompts. |
 
 ## Examples

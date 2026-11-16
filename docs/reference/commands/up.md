@@ -13,17 +13,17 @@ Waits until every kustomization is Ready. Up fails when a kustomization fails: a
 
 If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.
 
-Pass --to to stop after one terraform component or kustomization, for example to do a manual step. Up then prints the command that continues. Run 'windsor up --continue' to skip the finished terraform components and run the rest.
+Pass --to to stop after a terraform component or kustomization. Run 'windsor up --continue' to resume.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--blueprint` | `""` | Blueprint OCI reference or local path. |
-| `--continue` | `false` | Continue a run that --to stopped, and skip the terraform components that it finished. |
+| `--continue` | `false` | Resume a run that --to stopped. |
 | `--platform` | `""` | Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
-| `--to` | `""` | Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> when a name matches both. |
+| `--to` | `""` | Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> if a name matches both. |
 | `--vm-driver` | `""` | VM driver: colima, colima-incus, docker-desktop, docker. |
 
 ## Examples

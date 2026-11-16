@@ -36,8 +36,8 @@ var (
 // When --set is given, it saves the config again before the workstation check, so that a context without a workstation also gets the values.
 // After the Up step, it generates the blueprint again with the terraform outputs.
 // An unresolved expression then fails by name, and raw ${...} text does not reach Flux.
-// With --to, it checks the name before it does any work, stops after the named item, and saves a record of the finished terraform components.
-// With --continue, it reads that record and skips those components. A stopped run skips the post-run messages.
+// With --to, it checks the name first and stops after the named item. A stopped run prints no post-run messages.
+// With --continue, it skips the components that the stopped run finished.
 // It prints the post-run messages as a summary at the end.
 var upCmd = &cobra.Command{
 	Use:   "up",
@@ -48,7 +48,7 @@ Waits until every kustomization is Ready. Up fails when a kustomization fails: a
 
 If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.
 
-Pass --to to stop after one terraform component or kustomization, for example to do a manual step. Up then prints the command that continues. Run 'windsor up --continue' to skip the finished terraform components and run the rest.`,
+Pass --to to stop after a terraform component or kustomization. Run 'windsor up --continue' to resume.`,
 	Example: `# Bring up the workstation
 windsor up
 

@@ -55,8 +55,8 @@ var (
 //   - With --yes, it checks the credentials and saves the config before it starts.
 //   - Without --yes, it does both in the confirmation callback after the user accepts, so a decline changes nothing.
 //
-// With --to, it stops after the named item and saves a record of the finished terraform components, and it writes no version marker.
-// With --continue, it skips those components and asks for no confirmation.
+// With --to, it stops after the named item and writes no version marker.
+// With --continue, it skips the finished components and does not prompt.
 //
 // The confirmation prompt runs while bootstrap holds the stack lock.
 // It prints the post-run messages as a summary at the end.
@@ -75,7 +75,7 @@ When no backend component exists, bootstrap falls through to a single apply agai
 
 Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.
 
-Pass --to to stop after one terraform component or kustomization, for example to do a manual step. Bootstrap then prints the command that continues. Run 'windsor bootstrap --continue' to skip the finished terraform components and run the rest, with no prompt. A stopped bootstrap writes no version marker. The backend components run as one unit, so --to accepts only the last of them.`,
+Pass --to to stop after a terraform component or kustomization. Run 'windsor bootstrap --continue' to resume. The backend components run as one unit, so --to accepts only the last one.`,
 	Example: `# Bootstrap a new staging context on AWS
 windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.0.0
 
@@ -284,13 +284,12 @@ windsor bootstrap --continue`,
 
 // addPartialRunFlags registers --to and --continue on c.
 func addPartialRunFlags(c *pflag.FlagSet, to *string, cont *bool) {
-	c.StringVar(to, "to", "", "Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> when a name matches both.")
-	c.BoolVar(cont, "continue", false, "Continue a run that --to stopped, and skip the terraform components that it finished.")
+	c.StringVar(to, "to", "", "Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> if a name matches both.")
+	c.BoolVar(cont, "continue", false, "Resume a run that --to stopped.")
 }
 
-// finishPartialRun saves or clears the record after a run that was not halted, and reports a stop.
-// A run that --to stopped saves the record and prints the command that continues it.
-// A run to the end removes the record. It returns true when the run stopped at a --to target.
+// finishPartialRun saves the record when --to stopped the run, and removes it otherwise.
+// It returns true when the run stopped.
 func finishPartialRun(w io.Writer, proj *project.Project, plan *provisioner.RunPlan, blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
 	if !plan.Stops() {
 		return false, proj.Provisioner.ClearPartialRun()
@@ -298,7 +297,7 @@ func finishPartialRun(w io.Writer, proj *project.Project, plan *provisioner.RunP
 	if err := proj.Provisioner.RecordPartialRun(blueprint, plan); err != nil {
 		return false, err
 	}
-	fmt.Fprintf(w, "Stopped after %s. Run 'windsor %s --continue' to continue.\n", plan.StopLabel(), plan.Command)
+	fmt.Fprintf(w, "Stopped after %s. Run 'windsor %s --continue' to resume.\n", plan.StopLabel(), plan.Command)
 	return true, nil
 }
 
