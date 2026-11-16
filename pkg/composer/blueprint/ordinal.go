@@ -16,7 +16,7 @@ import (
 
 // OrdinalFromFacetPath returns the default ordinal for a facet from the basename of its path. A higher
 // ordinal wins in a merge. Rules: config-* 100; provider-* or platform-* with "-base" 199; provider-*
-// or platform-* 200; option-* or options-* 300; addon-* or addons-* 400; no match 0.
+// or platform-* 200; option-* or options-* 300; addon-*, addons-*, app-*, or apps-* 400; no match 0.
 func OrdinalFromFacetPath(path string) int {
 	return OrdinalFromBasename(filepath.Base(path))
 }
@@ -39,7 +39,8 @@ func OrdinalFromBasename(basename string) int {
 	if strings.HasPrefix(basename, "options-") || strings.HasPrefix(basename, "option-") {
 		return 300
 	}
-	if strings.HasPrefix(basename, "addons-") || strings.HasPrefix(basename, "addon-") {
+	if strings.HasPrefix(basename, "addons-") || strings.HasPrefix(basename, "addon-") ||
+		strings.HasPrefix(basename, "apps-") || strings.HasPrefix(basename, "app-") {
 		return 400
 	}
 	return 0
