@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
@@ -279,6 +280,26 @@ windsor bootstrap --continue`,
 
 		return nil
 	},
+}
+
+// addPartialRunFlags registers --to and --continue on c.
+func addPartialRunFlags(c *pflag.FlagSet, to *string, cont *bool) {
+	c.StringVar(to, "to", "", "Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> when a name matches both.")
+	c.BoolVar(cont, "continue", false, "Continue a run that --to stopped, and skip the terraform components that it finished.")
+}
+
+// finishPartialRun saves or clears the record after a run that was not halted, and reports a stop.
+// A run that --to stopped saves the record and prints the command that continues it.
+// A run to the end removes the record. It returns true when the run stopped at a --to target.
+func finishPartialRun(w io.Writer, proj *project.Project, plan *provisioner.RunPlan, blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
+	if !plan.Stops() {
+		return false, proj.Provisioner.ClearPartialRun()
+	}
+	if err := proj.Provisioner.RecordPartialRun(blueprint, plan); err != nil {
+		return false, err
+	}
+	fmt.Fprintf(w, "Stopped after %s. Run 'windsor %s --continue' to continue.\n", plan.StopLabel(), plan.Command)
+	return true, nil
 }
 
 // warnNotReady writes a warning to w and returns nil when err reports a kustomization that is still
