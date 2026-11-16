@@ -271,6 +271,20 @@ func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapCo
 	return blueprint, true, halted, nil
 }
 
+// PlanRun builds the run plan for --to and --continue and gives it to the provisioner for the next Up.
+// It returns nil when both are unset. It runs before any work starts, so a bad --to value or a
+// missing record fails before the workstation starts or the config changes.
+func (p *Project) PlanRun(command, to string, continuing bool) (*provisioner.RunPlan, error) {
+	if to == "" && !continuing {
+		return nil, nil
+	}
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not loaded")
+	}
+	return p.Provisioner.PlanRun(blueprint, command, to, continuing)
+}
+
 // PerformCleanup removes the artifacts of the context. It cleans the config state and removes
 // the .kube and .talos directories under contexts/<context>. It removes the contents of
 // .windsor/contexts/<context>, but keeps workstation.yaml. It returns an error if a step fails.

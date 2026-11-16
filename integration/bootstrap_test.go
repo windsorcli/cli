@@ -206,3 +206,86 @@ func TestBootstrap_WritesContextFileOnFirstRun(t *testing.T) {
 		t.Errorf("expected .windsor/context to contain 'staging', got: %q", data)
 	}
 }
+
+// TestBootstrap_ToRejectsUnknownName verifies that --to fails before any work when the name matches
+// no terraform component or kustomization, and that the error lists the valid names.
+func TestBootstrap_ToRejectsUnknownName(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env); err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=staging")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes", "--to", "nope"}, env)
+	if err == nil {
+		t.Fatalf("expected an unknown --to name to fail, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, `unknown --to target "nope"`) || !strings.Contains(combined, "backend, null") {
+		t.Errorf("expected the error to name the target and list the valid names, got:\n%s", combined)
+	}
+	if strings.Contains(combined, "Applying") {
+		t.Errorf("expected no apply before the name check, got:\n%s", combined)
+	}
+}
+
+// TestBootstrap_ContinueWithoutRecordFails verifies that --continue fails with a hint when no
+// earlier run stopped.
+func TestBootstrap_ContinueWithoutRecordFails(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env); err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=staging")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--continue"}, env)
+	if err == nil {
+		t.Fatalf("expected --continue without a record to fail, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "no stopped run to continue") {
+		t.Errorf("expected the error to say that no run stopped, got:\n%s", combined)
+	}
+}
+
+// TestBootstrap_ToStopsAndContinueSkipsFinishedComponents verifies the stop and the resume end to end.
+// The first run applies only the backend component, saves the record, and prints the continue command.
+// The second run skips the backend component and applies the null component.
+func TestBootstrap_ToStopsAndContinueSkipsFinishedComponents(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env); err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=staging")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes", "--to", "backend"}, env)
+	if err != nil {
+		t.Fatalf("bootstrap --to backend: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, `Stopped after terraform component "backend"`) || !strings.Contains(combined, "windsor bootstrap --continue") {
+		t.Errorf("expected the stop message with the continue command, got:\n%s", combined)
+	}
+	if strings.Contains(combined, "Applying null") || strings.Contains(combined, "bootstrapped successfully") {
+		t.Errorf("expected the run to stop before the null component, got:\n%s", combined)
+	}
+	recordPath := filepath.Join(dir, ".windsor", "contexts", "staging", "partial-run.yaml")
+	if _, err := os.Stat(recordPath); err != nil {
+		t.Fatalf("expected the record at %s, got %v", recordPath, err)
+	}
+
+	stdout, stderr, _ = helpers.RunCLI(dir, []string{"bootstrap", "--continue"}, env)
+	combined = string(stdout) + string(stderr)
+	if strings.Contains(combined, "Applying backend") {
+		t.Errorf("expected --continue to skip the backend component, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "Applying null") {
+		t.Errorf("expected --continue to apply the null component, got:\n%s", combined)
+	}
+}

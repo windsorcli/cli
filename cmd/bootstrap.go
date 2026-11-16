@@ -35,6 +35,8 @@ var (
 	bootstrapBlueprint string
 	bootstrapSetFlags  []string
 	bootstrapYes       bool
+	bootstrapTo        string
+	bootstrapContinue  bool
 )
 
 // bootstrapCmd brings up a new environment from the start to the end.
@@ -52,6 +54,9 @@ var (
 //   - With --yes, it checks the credentials and saves the config before it starts.
 //   - Without --yes, it does both in the confirmation callback after the user accepts, so a decline changes nothing.
 //
+// With --to, it stops after the named item and saves a record of the finished terraform components, and it writes no version marker.
+// With --continue, it skips those components and asks for no confirmation.
+//
 // The confirmation prompt runs while bootstrap holds the stack lock.
 // It prints the post-run messages as a summary at the end.
 var bootstrapCmd = &cobra.Command{
@@ -67,12 +72,18 @@ When the blueprint declares a backend Terraform component, bootstrap runs a two-
 
 When no backend component exists, bootstrap falls through to a single apply against whatever backend is configured.
 
-Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.`,
+Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.
+
+Pass --to to stop after one terraform component or kustomization, for example to do a manual step. Bootstrap then prints the command that continues. Run 'windsor bootstrap --continue' to skip the finished terraform components and run the rest, with no prompt. A stopped bootstrap writes no version marker. The backend components run as one unit, so --to accepts only the last of them.`,
 	Example: `# Bootstrap a new staging context on AWS
 windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.0.0
 
 # Re-bootstrap an existing context, scripted (skip the prompt)
-windsor bootstrap prod --yes`,
+windsor bootstrap prod --yes
+
+# Stop after the cluster component, then continue
+windsor bootstrap --to cluster
+windsor bootstrap --continue`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)\n" +
 			"[Global flags](../global-flags.md) — `--no-cache`, `--lock-timeout`, `--verbose`",
@@ -144,7 +155,8 @@ windsor bootstrap prod --yes`,
 			proj = project.NewProject(contextName, projectOpts)
 		}
 
-		if !bootstrapYes {
+		skipPrompts := bootstrapYes || bootstrapContinue
+		if !skipPrompts {
 			configRoot, err := proj.Runtime.ConfigHandler.GetConfigRoot()
 			if err != nil {
 				return werror.Wrap(err, "failed to resolve config root for bootstrap confirmation")
@@ -172,11 +184,16 @@ windsor bootstrap prod --yes`,
 			return err
 		}
 
+		plan, err := proj.PlanRun("bootstrap", bootstrapTo, bootstrapContinue)
+		if err != nil {
+			return err
+		}
+
 		var confirmFn provisioner.BootstrapConfirmFn
 		finishPlan := func(error) {}
 		var deferredErr error
 		saveSet := len(bootstrapSetFlags) > 0
-		if !bootstrapYes {
+		if !skipPrompts {
 			promptConfirmFn, fp := makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
 			finishPlan = fp
 			confirmFn = func(summary *provisioner.BootstrapSummary) bool {
@@ -202,7 +219,7 @@ windsor bootstrap prod --yes`,
 			}
 		}
 
-		var applied, halted bool
+		var applied, halted, stopped bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", lockTimeout, func() error {
 			_, ok, h, err := proj.Bootstrap(cmd.Context(), confirmFn)
@@ -216,21 +233,31 @@ windsor bootstrap prod --yes`,
 				return nil
 			}
 
+			if plan.Stops() && !plan.Install {
+				stopped, err = finishPartialRun(os.Stderr, proj, plan, proj.Composer.BlueprintHandler.Generate())
+				return err
+			}
+
 			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 			if err != nil {
 				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
-			postRunMessages = blueprint.Messages
+			if !plan.Stops() {
+				postRunMessages = blueprint.Messages
+			}
 
-			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
+			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), plan.InstallBlueprint(blueprint), false), postRunMessages); err != nil {
 				return werror.Wrap(err, "error installing blueprint")
 			}
 
-			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
-				return werror.Wrap(err, "error writing version marker")
+			if !plan.Stops() {
+				if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
+					return werror.Wrap(err, "error writing version marker")
+				}
 			}
-			return nil
+			stopped, err = finishPartialRun(os.Stderr, proj, plan, blueprint)
+			return err
 		}); err != nil {
 			return err
 		}
@@ -242,7 +269,7 @@ windsor bootstrap prod --yes`,
 			return nil
 		}
 
-		if !halted {
+		if !halted && !stopped {
 			fmt.Fprintf(os.Stderr, "Windsor environment bootstrapped successfully in %s.\n", presenter.FormatDuration(time.Since(started)))
 		}
 		printPostRunMessages(os.Stderr, postRunMessages)
@@ -400,6 +427,7 @@ func init() {
 	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox.")
 	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required.")
 	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
+	addPartialRunFlags(bootstrapCmd.Flags(), &bootstrapTo, &bootstrapContinue)
 	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts.")
 	rootCmd.AddCommand(bootstrapCmd)
 }

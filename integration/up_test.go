@@ -153,3 +153,21 @@ func TestUp_RecognisesVmDriverAndBlueprintFlags(t *testing.T) {
 		}
 	}
 }
+
+// TestUp_AcceptsToAndContinueFlags verifies that --to and --continue are recognised flags of up.
+func TestUp_AcceptsToAndContinueFlags(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "up")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env)
+	if err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=staging")
+	for _, args := range [][]string{{"up", "--to", "cluster"}, {"up", "--continue"}} {
+		_, stderr, err = helpers.RunCLI(dir, args, env)
+		if err != nil {
+			t.Fatalf("%v: expected the flag to be accepted, got error: %v\nstderr: %s", args, err, stderr)
+		}
+	}
+}
