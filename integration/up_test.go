@@ -154,8 +154,9 @@ func TestUp_RecognisesVmDriverAndBlueprintFlags(t *testing.T) {
 	}
 }
 
-// TestUp_AcceptsToAndContinueFlags verifies that --to and --continue are recognised flags of up.
-func TestUp_AcceptsToAndContinueFlags(t *testing.T) {
+// TestUp_ChecksToBeforeSavingSetValues verifies that up validates --to before it saves --set values.
+// A name that matches nothing fails with the valid names, and values.yaml does not get the --set value.
+func TestUp_ChecksToBeforeSavingSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "up")
 	helpers.MarkAsGitRepo(t, dir)
@@ -164,10 +165,16 @@ func TestUp_AcceptsToAndContinueFlags(t *testing.T) {
 		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=staging")
-	for _, args := range [][]string{{"up", "--to", "cluster"}, {"up", "--continue"}} {
-		_, stderr, err = helpers.RunCLI(dir, args, env)
-		if err != nil {
-			t.Fatalf("%v: expected the flag to be accepted, got error: %v\nstderr: %s", args, err, stderr)
-		}
+
+	_, stderr, err = helpers.RunCLI(dir, []string{"up", "--to", "nope", "--set", "custom.key=hello"}, env)
+	if err == nil {
+		t.Fatalf("expected an unknown --to name to fail, got success\nstderr: %s", stderr)
+	}
+	if strings.Contains(string(stderr), "unknown flag") || !strings.Contains(string(stderr), `unknown --to target "nope"`) {
+		t.Errorf("expected the flag to parse and the name check to fail, got: %s", stderr)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "contexts", "staging", "values.yaml"))
+	if strings.Contains(string(data), "key: hello") {
+		t.Errorf("expected --set to stay unsaved after the failed check, got:\n%s", data)
 	}
 }

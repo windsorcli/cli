@@ -104,6 +104,11 @@ windsor up --continue`,
 			return err
 		}
 
+		plan, err := proj.PlanRun("up", upTo, upContinue)
+		if err != nil {
+			return err
+		}
+
 		if len(upSetFlags) > 0 {
 			if err := proj.Runtime.SaveConfig(true); err != nil {
 				return werror.Wrap(err, "failed to save configuration")
@@ -113,11 +118,6 @@ windsor up --continue`,
 		if proj.Workstation == nil {
 			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
 			return nil
-		}
-
-		plan, err := proj.PlanRun("up", upTo, upContinue)
-		if err != nil {
-			return err
 		}
 
 		if err := requireCloudAuth(cmd, proj); err != nil {
