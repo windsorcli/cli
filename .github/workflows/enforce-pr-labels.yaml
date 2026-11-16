@@ -14,15 +14,10 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const allowedLabels = ['bug', 'chore', 'feature', 'documentation', 'breaking'];
             const requiredLabels = ['bug', 'chore', 'feature', 'documentation'];
             const prLabels = context.payload.pull_request.labels.map(label => label.name);
             const hasRequiredLabel = prLabels.some(label => requiredLabels.includes(label));
             
-            const badLabels = prLabels.filter(label => !allowedLabels.includes(label));
-
             if (!hasRequiredLabel) {
               core.setFailed('Your PR must have at least one of these labels: ' + requiredLabels.join(', '));
-            } else if (badLabels.length > 0) {
-              core.setFailed('These labels are not allowed: ' + badLabels.join(', ') + '. Allowed labels: ' + allowedLabels.join(', '));
             }
