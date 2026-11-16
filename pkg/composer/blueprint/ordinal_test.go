@@ -54,6 +54,20 @@ func TestOrdinalFromBasename(t *testing.T) {
 			t.Errorf("OrdinalFromBasename(addon-private-ca.yaml) = %d, want 400", got)
 		}
 	})
+	t.Run("Returns400ForAppPrefixes", func(t *testing.T) {
+		for _, name := range []string{"app-x.yaml", "apps-x.yaml", "app-jellyfin.yaml"} {
+			if got := blueprint.OrdinalFromBasename(name); got != 400 {
+				t.Errorf("OrdinalFromBasename(%s) = %d, want 400", name, got)
+			}
+		}
+	})
+	t.Run("Returns0ForAppWithoutHyphen", func(t *testing.T) {
+		for _, name := range []string{"application.yaml", "apps.yaml", "approval.yaml"} {
+			if got := blueprint.OrdinalFromBasename(name); got != 0 {
+				t.Errorf("OrdinalFromBasename(%s) = %d, want 0", name, got)
+			}
+		}
+	})
 	t.Run("Returns0ForNoMatch", func(t *testing.T) {
 		if got := blueprint.OrdinalFromBasename("custom.yaml"); got != 0 {
 			t.Errorf("OrdinalFromBasename(custom.yaml) = %d, want 0", got)
