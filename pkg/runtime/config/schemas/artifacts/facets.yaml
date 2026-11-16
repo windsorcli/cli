@@ -46,7 +46,7 @@ properties:
       ordinal wins on conflict (processed later). Default by file-name prefix:
       'config-*' 100, 'provider-*'/'platform-*' with '-base' 199, other
       'provider-*'/'platform-*' 200, 'option-*'/'options-*' 300,
-      'addon-*'/'addons-*' 400, otherwise 0. Ordinal does not cross a source
+      'addon-*'/'addons-*'/'app-*'/'apps-*' 400, otherwise 0. Ordinal does not cross a source
       boundary: a blueprint's facets always compose after the facets of the
       sources it references, whatever ordinal either side sets.
   when:
