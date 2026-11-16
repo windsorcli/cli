@@ -2,7 +2,9 @@ name-template: 'v$RESOLVED_VERSION'
 tag-template: 'v$RESOLVED_VERSION'
 categories:
   - title: 'Features'
-    label: 'feature'
+    labels:
+      - 'feature'
+      - 'enhancement'
   - title: 'Bug Fixes'
     label: 'bug'
   - title: 'Documentation'
@@ -24,6 +26,7 @@ version-resolver:
   patch:
     labels:
       - 'bug'
+      - 'enhancement'
       - 'chore'
       - 'documentation'
       - 'dependencies'
