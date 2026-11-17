@@ -352,12 +352,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "D:\tmp"
         shell: pwsh
 
-      - name: Import GPG key
-        id: import_gpg
-        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       - name: Check if prerelease
         id: prerelease
@@ -394,7 +390,6 @@ jobs:
           args: release --clean ${{ steps.prerelease.outputs.prerelease == 'true' && '--skip=chocolatey,homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
           GITHUB_SHA: ${{ github.sha }}
           HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
