@@ -19,13 +19,17 @@ When no backend component exists, bootstrap falls through to a single apply agai
 
 Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.
 
+Pass --to to stop after a terraform component or kustomization. Run 'windsor bootstrap --continue' to resume. The backend components run as one unit, so --to accepts only the last one.
+
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--blueprint` | `""` | Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required. |
+| `--continue` | `false` | Resume a run that --to stopped. |
 | `--platform` | `""` | Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
+| `--to` | `""` | Stop after this terraform component or kustomization. Use terraform/<id> or kustomize/<name> if a name matches both. |
 | `-y`, `--yes` | `false` | Skip all confirmation prompts. |
 
 ## Examples
@@ -36,6 +40,10 @@ windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.
 
 # Re-bootstrap an existing context, scripted (skip the prompt)
 windsor bootstrap prod --yes
+
+# Stop after the cluster component, then continue
+windsor bootstrap --to cluster
+windsor bootstrap --continue
 ```
 
 ## See also

@@ -26,6 +26,8 @@ var (
 	upPlatform  string
 	upBlueprint string
 	upSetFlags  []string
+	upTo        string
+	upContinue  bool
 )
 
 // upCmd brings up the local workstation environment.
@@ -34,6 +36,8 @@ var (
 // When --set is given, it saves the config again before the workstation check, so that a context without a workstation also gets the values.
 // After the Up step, it generates the blueprint again with the terraform outputs.
 // An unresolved expression then fails by name, and raw ${...} text does not reach Flux.
+// With --to, it checks the name first and stops after the named item. A stopped run prints no post-run messages.
+// With --continue, it skips the components that the stopped run finished.
 // It prints the post-run messages as a summary at the end.
 var upCmd = &cobra.Command{
 	Use:   "up",
@@ -42,7 +46,9 @@ var upCmd = &cobra.Command{
 
 Waits until every kustomization is Ready. Up fails when a kustomization fails: a BuildFailed or ArtifactFailed condition, or a failed HelmRelease. Up also fails when a kustomization is still in progress at the end of the wait. If the blueprint declares post-run notes, up gives a warning for a kustomization in progress, and does not fail.
 
-If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.`,
+If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.
+
+Pass --to to stop after a terraform component or kustomization. Run 'windsor up --continue' to resume.`,
 	Example: `# Bring up the workstation
 windsor up
 
@@ -50,7 +56,11 @@ windsor up
 windsor up --set cluster.workers.count=3
 
 # Initialize and bring up with a specific blueprint
-windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
+windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0
+
+# Stop after the cluster component, then continue
+windsor up --to cluster
+windsor up --continue`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
 		"docs.source":  "cmd/up.go",
@@ -94,6 +104,11 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return err
 		}
 
+		plan, err := proj.PlanRun("up", upTo, upContinue)
+		if err != nil {
+			return err
+		}
+
 		if len(upSetFlags) > 0 {
 			if err := proj.Runtime.SaveConfig(true); err != nil {
 				return werror.Wrap(err, "failed to save configuration")
@@ -109,7 +124,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return err
 		}
 
-		var halted bool
+		var halted, stopped bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", lockTimeout, func() error {
 			_, h, err := proj.Up(cmd.Context())
@@ -121,22 +136,30 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 				return nil
 			}
 
+			if plan.Stops() && !plan.Install {
+				stopped, err = finishPartialRun(os.Stderr, proj, plan, proj.Composer.BlueprintHandler.Generate())
+				return err
+			}
+
 			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 			if err != nil {
 				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
-			postRunMessages = blueprint.Messages
+			if !plan.Stops() {
+				postRunMessages = blueprint.Messages
+			}
 
-			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
+			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), plan.InstallBlueprint(blueprint), false), postRunMessages); err != nil {
 				return werror.Wrap(err, "error installing blueprint")
 			}
-			return nil
+			stopped, err = finishPartialRun(os.Stderr, proj, plan, blueprint)
+			return err
 		}); err != nil {
 			return err
 		}
 
-		if !halted {
+		if !halted && !stopped {
 			fmt.Fprintf(os.Stderr, "Windsor environment set up successfully in %s.\n", presenter.FormatDuration(time.Since(started)))
 		}
 		printPostRunMessages(os.Stderr, postRunMessages)
@@ -215,6 +238,7 @@ func init() {
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")
 	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox.")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
+	addPartialRunFlags(upCmd.Flags(), &upTo, &upContinue)
 	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
 	rootCmd.AddCommand(upCmd)
 }
