@@ -41,7 +41,7 @@ const kustomizationWaitMessageLimit = 200
 var errKustomizationWaitTimeout = errors.New("kustomization wait timed out")
 
 // ErrKustomizationFailed marks a WaitForKustomizations error from a Kustomization that will not become
-// Ready without a change. A BuildFailed or ArtifactFailed condition and a failed HelmRelease match it.
+// Ready without a change. A BuildFailed condition and a failed HelmRelease match it.
 var ErrKustomizationFailed = errors.New("kustomization failed")
 
 // kustomizationsGVR is the Flux Kustomization resource.
@@ -59,7 +59,7 @@ const (
 // kustomizationFailureReasons maps each Ready=False reason that counts as a failure to its kind.
 var kustomizationFailureReasons = map[string]kustomizationFailureKind{
 	meta.BuildFailedReason:          kustomizationFailureHard,
-	meta.ArtifactFailedReason:       kustomizationFailureHard,
+	meta.ArtifactFailedReason:       kustomizationFailurePending,
 	meta.ReconciliationFailedReason: kustomizationFailurePending,
 }
 
@@ -129,12 +129,14 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 
 // WaitForKustomizations waits until each Kustomization is Ready, within the timeout of the longest
 // dependency chain. It follows a watch on the Kustomizations and returns ctx.Err() on cancellation.
-// BuildFailed and ArtifactFailed fail at once. List errors and ReconciliationFailed fail after an
+// BuildFailed fails at once. List errors, ReconciliationFailed, and ArtifactFailed fail after an
 // error budget: a quarter of the total, or the own timeout of the Kustomization when that is shorter,
-// and never less than the minimum. At the timeout, or when ReconciliationFailed uses up its budget, a
+// and never less than the minimum. Flux reports ArtifactFailed for a short time when the source
+// artifact changes during a reconcile, then retries. At the timeout, or when ReconciliationFailed or
+// ArtifactFailed uses up its budget, a
 // failed HelmRelease of a Kustomization that is not Ready fails the wait as a hard failure.
 // Otherwise the timeout error names each Kustomization that is not Ready.
-// A BuildFailed, ArtifactFailed, or HelmRelease failure matches ErrKustomizationFailed.
+// A BuildFailed or HelmRelease failure matches ErrKustomizationFailed.
 // It reports one step per Kustomization to layers, starting each when its dependencies are Ready
 // and failing the one that fails the wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error {
