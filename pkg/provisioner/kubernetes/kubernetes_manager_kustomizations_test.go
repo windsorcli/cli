@@ -503,29 +503,57 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
-	t.Run("ArtifactFailedFailsImmediately", func(t *testing.T) {
-		// Given a kustomization with a Ready=False/ArtifactFailed condition
+	t.Run("ArtifactFailedRecoversWithinBudgetSucceeds", func(t *testing.T) {
+		// Given a kustomization that reports ArtifactFailed for two ticks and then Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			calls++
+			if calls < 3 {
+				return listOf(kustomizationListItem("test-kustomization", "False", meta.ArtifactFailedReason, "Source is not ready, artifact digest changed, retrying in 10s")), nil
+			}
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", time.Second),
+		}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the transient failure is tolerated and the wait succeeds
+		if err != nil {
+			t.Errorf("Expected ArtifactFailed to be tolerated within the error budget, got %v", err)
+		}
+		if calls < 3 {
+			t.Errorf("Expected multiple polls before recovery, got %d calls", calls)
+		}
+	})
+
+	t.Run("ArtifactFailedExceedingBudgetFails", func(t *testing.T) {
+		// Given a kustomization that reports ArtifactFailed on every poll
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return listOf(kustomizationListItem("test-kustomization", "False", meta.ArtifactFailedReason, "boom")), nil
 		}
 		manager := setup(t, kubernetesClient)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			withTimeout("test-kustomization", 10*time.Minute),
+			withTimeout("test-kustomization", time.Second),
 		}}
 
 		// When the wait runs
 		err := wait(manager, blueprint)
 
-		// Then the wait fails with the underlying message
+		// Then the wait fails on the error budget with the underlying message
 		if err == nil {
-			t.Fatal("Expected an immediate failure for ArtifactFailed, got nil")
+			t.Fatal("Expected an error once the error budget is exceeded, got nil")
 		}
 		if !strings.Contains(err.Error(), "boom") {
 			t.Errorf("Expected the underlying message surfaced, got: %v", err)
 		}
-		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
-			t.Errorf("Expected the failure to match ErrKustomizationFailed, got: %v", err)
+		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
 		}
 	})
 
