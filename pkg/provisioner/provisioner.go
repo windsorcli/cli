@@ -64,6 +64,7 @@ type Provisioner struct {
 	Notifier             fluxinfra.Notifier
 	onTerraformApply     []func(ctx context.Context, id string) (bool, error)
 	onTerraformPostApply []func(ctx context.Context, id string) error
+	runPlan              *RunPlan
 	KubernetesManager    kubernetes.KubernetesManager
 	KubernetesClient     k8sclient.KubernetesClient
 	ClusterClient        cluster.ClusterClient
@@ -175,6 +176,8 @@ func (i *Provisioner) OnTerraformPostApply(fn func(ctx context.Context, id strin
 // applyWithBackendPivot describes. Up refuses a kubernetes backend with no declared backend and no
 // kubeconfig, and a declared backend that names no component. Each component shows as a step under
 // one "Applying terraform" operation. Up does not ask for confirmation; the commands do that.
+// When PlanRun kept a plan, Up applies only the components of the plan and runs the hooks of the
+// skipped components again first, as replayFinished describes. The plan applies to one call.
 func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -182,10 +185,20 @@ func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return false, err
 	}
+	plan := i.runPlan
+	i.runPlan = nil
+	applyBlueprint := blueprint
+	if plan != nil {
+		replayHalted, err := i.replayFinished(ctx, plan, onApply...)
+		if err != nil || replayHalted {
+			return replayHalted, err
+		}
+		applyBlueprint = plan.TerraformBlueprint(blueprint)
+	}
 	var halted bool
 	err := presenter.Track(ctx, "terraform", "Applying terraform", func(ctx context.Context) error {
 		var err error
-		halted, err = i.up(ctx, blueprint, onApply...)
+		halted, err = i.up(ctx, applyBlueprint, onApply...)
 		return err
 	})
 	return halted, err
