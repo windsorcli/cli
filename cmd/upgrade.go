@@ -106,6 +106,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			return err
 		}
 
+		if err := requireUpgradeCluster(proj); err != nil {
+			return err
+		}
+
 		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
@@ -351,6 +355,23 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 
 		return nil
 	},
+}
+
+// requireUpgradeCluster stops an upgrade when the context has no kubeconfig.
+// The upgrade writes a version marker to the cluster and lists the kustomizations to prune, and both need the cluster.
+// The check runs before the plan and before the Terraform apply, so a context with no cluster changes nothing.
+// A stat error other than "not exist" does not stop the upgrade, and the later cluster steps report it.
+func requireUpgradeCluster(proj *project.Project) error {
+	if proj.Runtime == nil || proj.Runtime.ConfigRoot == "" {
+		return nil
+	}
+	path := filepath.Join(proj.Runtime.ConfigRoot, ".kube", "config")
+	if _, err := os.Stat(path); err != nil && os.IsNotExist(err) { // #nosec G703 -- path is inside the context's own config root
+		return werror.New(
+			fmt.Sprintf("context %s has no kubeconfig, so there is no cluster to upgrade", proj.Runtime.ContextName),
+			"Run 'windsor bootstrap' to create the cluster, then run 'windsor upgrade' again.", nil)
+	}
+	return nil
 }
 
 // parseRebootMode validates a --reboot-mode value and reports whether it selects powercycle.

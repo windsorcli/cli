@@ -24,6 +24,20 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
+// setupUpgradeTest builds the apply mocks and gives the context a kubeconfig, as a bootstrapped context has.
+func setupUpgradeTest(t *testing.T) *ApplyMocks {
+	t.Helper()
+	mocks := setupApplyTest(t)
+	dir := filepath.Join(mocks.TmpDir, "contexts", "test-context", ".kube")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("seed kubeconfig dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+		t.Fatalf("seed kubeconfig: %v", err)
+	}
+	return mocks
+}
+
 func TestUpgradeCmd(t *testing.T) {
 	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
@@ -36,7 +50,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("PrunesAfterSuccessfulWait", func(t *testing.T) {
 		// Given an upgrade with an orphaned kustomization
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
 		}
@@ -65,7 +79,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("PlacesSecretsAfterInstall", func(t *testing.T) {
 		// Given an upgrade whose resolved blueprint declares a secret
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) {
 			return &blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -104,7 +118,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("WritesInFlightMarkerThenSettledMarker", func(t *testing.T) {
 		// Given an upgrade whose every step succeeds
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		var phases []string
 		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
 			phases = append(phases, marker.Phase)
@@ -128,7 +142,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("LeavesInFlightMarkerWhenWaitFails", func(t *testing.T) {
 		// Given a wait that fails after the transition has been recorded
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait failed")
 		}
@@ -156,7 +170,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("LeavesInFlightMarkerWhenInstallFails", func(t *testing.T) {
 		// Given an install that fails after the transition has been recorded
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("install failed")
 		}
@@ -184,7 +198,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("LeavesInFlightMarkerWhenPruneFails", func(t *testing.T) {
 		// Given an orphan to prune and a prune that fails after install and wait succeed
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
 		}
@@ -216,7 +230,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("WaitFailureSkipsPrune", func(t *testing.T) {
 		// Given a wait that fails before the desired set has reconciled
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait failed")
 		}
@@ -247,7 +261,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("ErrorPruneFails", func(t *testing.T) {
 		// Given an orphan to prune and a prune step that fails after a successful wait
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
 		}
@@ -274,7 +288,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		// Given a blueprint handler that returns nil
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return nil }
 		proj := newApplyAllProject(mocks)
 
@@ -295,7 +309,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("ErrorNilResolvedBlueprint", func(t *testing.T) {
 		// Given a handler whose resolved blueprint comes back nil after terraform runs
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return nil, nil }
 		proj := newApplyAllProject(mocks)
 
@@ -316,7 +330,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("ErrorTerraformFails", func(t *testing.T) {
 		// Given a terraform stack whose Up fails
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform up failed")
 		}
@@ -339,7 +353,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 	t.Run("RejectsUnexpectedArgs", func(t *testing.T) {
 		// Given a bare upgrade command with a stray positional argument
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		proj := newApplyAllProject(mocks)
 
 		// When executing with an unexpected argument
@@ -356,6 +370,72 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 }
 
+func TestUpgradeCmd_NoKubeconfig(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("StopsBeforeTerraformWithYes", func(t *testing.T) {
+		// Given a context whose kubeconfig does not exist
+		mocks := setupApplyTest(t)
+		applied := false
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(context.Context, string) (bool, error)) (bool, error) {
+			applied = true
+			return true, nil
+		}
+		proj := newApplyAllProject(mocks)
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj))
+
+		// When upgrading with --yes
+		err := cmd.Execute()
+
+		// Then it fails with a clear message and applies nothing
+		if err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
+			t.Fatalf("Expected a no-kubeconfig error, got %v", err)
+		}
+		if applied {
+			t.Error("Expected no terraform apply")
+		}
+	})
+
+	t.Run("StopsBeforeThePlanPrompt", func(t *testing.T) {
+		// Given a context whose kubeconfig does not exist, in a terminal
+		originalIsTerminal := *cliCmd.UpgradeStdinIsTerminal
+		*cliCmd.UpgradeStdinIsTerminal = func() bool { return true }
+		t.Cleanup(func() { *cliCmd.UpgradeStdinIsTerminal = originalIsTerminal })
+		listed := false
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
+			listed = true
+			return nil, nil
+		}
+		proj := newApplyAllProject(mocks)
+		cmd := createTestUpgradeCmd()
+		var stderr bytes.Buffer
+		cmd.SetErr(&stderr)
+		cmd.SetIn(strings.NewReader("y\n"))
+		cmd.SetArgs(nil)
+		cmd.SetContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj))
+
+		// When upgrading
+		err := cmd.Execute()
+
+		// Then it stops before it lists prunable kustomizations or prints the plan
+		if err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
+			t.Fatalf("Expected a no-kubeconfig error, got %v", err)
+		}
+		if listed {
+			t.Error("Expected no prune listing")
+		}
+		if strings.Contains(stderr.String(), "Proceed with the upgrade?") {
+			t.Error("Expected no confirmation prompt")
+		}
+	})
+}
+
 func TestUpgradeCmd_Latest(t *testing.T) {
 	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
@@ -367,7 +447,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("ResolvesLatestPersistsAndUpgrades", func(t *testing.T) {
 		// Given sources with a newer version available (implicit upgrade, no --source)
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return []blueprint.SourceUpgrade{{
 				Name: "core",
@@ -405,7 +485,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("ReportsWhenAlreadyLatest", func(t *testing.T) {
 		// Given nothing newer is available
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return nil, nil
 		}
@@ -429,7 +509,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("RecomposesAfterUpgradeBeforeGeneratingManifests", func(t *testing.T) {
 		// Given a bare upgrade that moves a source to its latest tag
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return []blueprint.SourceUpgrade{{
 				Name: "core",
@@ -476,7 +556,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("ResolutionErrorAborts", func(t *testing.T) {
 		// Given resolving latest fails
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return nil, fmt.Errorf("registry unreachable")
 		}
@@ -499,7 +579,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("ReportsTheChangelogOfAnUpgradedSource", func(t *testing.T) {
 		// Given an upgrade of core whose new version sets a changelog URL after the recompose
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return []blueprint.SourceUpgrade{{Name: "core", From: "oci://ghcr.io/windsorcli/core:v0.5.0", To: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
 		}
@@ -535,7 +615,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 	t.Run("ReportsNoChangelogWhenTheSourceSetsNone", func(t *testing.T) {
 		// Given an upgrade of core whose new version sets no changelog URL
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return []blueprint.SourceUpgrade{{Name: "core", From: "oci://ghcr.io/windsorcli/core:v0.5.0", To: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
 		}
@@ -568,7 +648,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("ReportsTheChangelogOfARetargetedSource", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget of core to a version that sets a changelog URL
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			return "oci://ghcr.io/windsorcli/core:v0.5.0", nil
 		}
@@ -602,7 +682,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RetargetsPersistsAndUpgrades", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a declared source being bumped to a new tag
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		var gotName, gotURL string
 		persisted := false
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
@@ -643,7 +723,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RecomposesAfterRetargetBeforeGeneratingManifests", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget that persists a new source URL to blueprint.yaml
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		var order []string
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			order = append(order, "retarget")
@@ -700,7 +780,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RegeneratesTerraformModulesAfterRetargetBeforeApplying", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget to a source version whose modules differ from the pinned version
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		var order []string
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			order = append(order, "retarget")
@@ -748,7 +828,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 
 	t.Run("SkipsTerraformRegenerationWhenNoSourceMoves", func(t *testing.T) {
 		// Given every source is already at its latest version
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return nil, nil
 		}
@@ -778,7 +858,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("TerraformRegenerationFailureAbortsBeforeApplying", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget whose module regeneration fails
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
 		}
@@ -821,7 +901,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RecomposeFailureAbortsBeforeApplying", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget whose recompose fails to pull the newly targeted source
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
 		}
@@ -862,7 +942,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("UnknownSourceAbortsBeforeWrite", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a source name that is not declared
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		persisted := false
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
 			return "", fmt.Errorf("source %q is not declared in the blueprint", name)
@@ -897,7 +977,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("MalformedSourceSpecIsRejected", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a --source value missing the name=url separator
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		proj := newApplyAllProject(mocks)
 
 		// When upgrading with the malformed spec
@@ -922,7 +1002,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RefusesDowngradeWithoutAllowFlag", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given a declared source currently pinned newer than the requested target
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
 			return []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
 		}
@@ -975,7 +1055,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("ProceedsWithAllowDowngrade", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given the same older target
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
 			return []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
 		}
@@ -1014,7 +1094,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	t.Run("RefusesWholeOperationWhenAnySourceDowngrades", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given two declared sources, one bumped forward and one moved back
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
 			return []blueprintv1alpha1.Source{
 				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0"},
@@ -1075,7 +1155,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 		*cliCmd.UpgradeStdinIsTerminal = func() bool { return false }
 		t.Cleanup(func() { *cliCmd.UpgradeStdinIsTerminal = originalIsTerminal })
 		// Given an upgrade that would rewrite blueprint.yaml and reconcile
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		installed := false
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			installed = true
@@ -1112,7 +1192,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 	t.Run("ProceedsWithYes", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeYes = false })
 		// Given a pending prune
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
 		}
@@ -1166,7 +1246,7 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 			*cliCmd.UpgradeStdinIsTerminal = originalIsTerminal
 		})
 
-		mocks := setupApplyTest(t)
+		mocks := setupUpgradeTest(t)
 		var blueprintPath string
 		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
 			return []blueprint.SourceUpgrade{{
