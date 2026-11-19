@@ -117,7 +117,7 @@ windsor up --continue`,
 		}
 
 		if proj.Workstation == nil {
-			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
+			fmt.Fprintln(os.Stderr, "windsor up needs a workstation. Run 'windsor bootstrap' to build a new environment, or 'windsor apply' to apply changes to an existing one.")
 			return nil
 		}
 
