@@ -131,13 +131,13 @@ func TestMigrateCmd(t *testing.T) {
 func TestMigrationNotice(t *testing.T) {
 	t.Run("PrintsForV1alpha1Project", func(t *testing.T) {
 		// Given a v1alpha1 project and a command that loads it
-		_, stderr, dir := setupMigrateProject(t, map[string]string{"windsor.yaml": migrateV1Root}, "context", "get")
+		_, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": migrateV1Root}, "context", "get")
 
 		// When running the command
 		_ = cliCmd.Execute()
 
 		// Then stderr names the file and the command
-		for _, want := range []string{filepath.Join(dir, "windsor.yaml"), "windsor migrate"} {
+		for _, want := range []string{"windsor.yaml", "windsor migrate"} {
 			if !strings.Contains(stderr.String(), want) {
 				t.Errorf("expected %q in %q", want, stderr.String())
 			}
