@@ -31,8 +31,10 @@ func TestUp_NoOpWhenWorkstationDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no-op success when workstation is disabled, got error: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stderr), "workstation") {
-		t.Errorf("expected stderr to mention 'workstation', got: %s", stderr)
+	for _, want := range []string{"windsor bootstrap", "windsor apply"} {
+		if !strings.Contains(string(stderr), want) {
+			t.Errorf("expected stderr to contain %q, got: %s", want, stderr)
+		}
 	}
 }
 
