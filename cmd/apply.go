@@ -44,8 +44,9 @@ windsor apply terraform cluster
 # Apply just the dns kustomization
 windsor apply kustomize dns`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
-		"docs.source":  "cmd/apply.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
+		"docs.source":             "cmd/apply.go",
 	},
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,

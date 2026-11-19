@@ -136,7 +136,7 @@ func TestMigrate_NoticeAndInitStop(t *testing.T) {
 		"contexts/staging/windsor.yaml": "dns:\n  domain: example.com\n",
 	})
 
-	_, stderr, _ := helpers.RunCLI(dir, []string{"context", "get"}, env)
+	_, stderr, _ := helpers.RunCLI(dir, []string{"env"}, env)
 	for _, want := range []string{"windsor migrate", filepath.Join("staging", "windsor.yaml")} {
 		if !strings.Contains(string(stderr), want) {
 			t.Errorf("expected the notice to contain %q, got %s", want, stderr)

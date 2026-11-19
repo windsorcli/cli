@@ -79,8 +79,9 @@ windsor destroy dns --confirm=dns
 # Continue past per-component failures and converge by rerunning
 windsor destroy --confirm=local --continue`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
-		"docs.source":  "cmd/destroy.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
+		"docs.source":             "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,

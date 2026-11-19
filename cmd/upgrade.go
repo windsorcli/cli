@@ -76,8 +76,9 @@ windsor upgrade --source core=oci://ghcr.io/windsorcli/core:v0.6.0 --yes
 # Upgrade Talos nodes in parallel (see 'upgrade cluster')
 windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`apply`](apply.md), [`bootstrap`](bootstrap.md), [`plan`](plan.md)",
-		"docs.source":  "cmd/upgrade.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`apply`](apply.md), [`bootstrap`](bootstrap.md), [`plan`](plan.md)",
+		"docs.source":             "cmd/upgrade.go",
 	},
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,

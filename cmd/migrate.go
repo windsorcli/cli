@@ -96,21 +96,17 @@ func requireMigratedProject(projectRoot string) error {
 // Migration Notice
 // =============================================================================
 
-// noticeSkipCommands lists the commands that never print the migration notice.
-var noticeSkipCommands = map[string]bool{
-	"migrate": true, "init": true, "version": true, "hook": true,
-	"help": true, "completion": true, "__complete": true, "__completeNoDesc": true,
-}
+// migrationNoticeAnnotation marks a command that prints the migration notice. A subcommand
+// inherits the mark from its parents. A command without the mark stays silent.
+const migrationNoticeAnnotation = "notice.migration"
 
 // printMigrationNotice writes one warning through the presenter when the project holds v1alpha1 files.
-// The warning names each file and says to run 'windsor migrate'. The shell hook runs 'env --hook'
-// on every directory change, so that command prints nothing. The function ignores every error,
-// so a notice never fails a command.
+// The warning names each file and says to run 'windsor migrate'. Only commands that a person runs
+// on purpose against the project carry the migrationNoticeAnnotation mark. The shell hook
+// ('env --hook') runs on every directory change, so it prints nothing. The function ignores
+// every error, so a notice never fails a command.
 func printMigrationNotice(cmd *cobra.Command) {
-	if noticeSkipCommands[cmd.Name()] {
-		return
-	}
-	if hookFlag := cmd.Flags().Lookup("hook"); hookFlag != nil && hookFlag.Value.String() == "true" {
+	if !wantsMigrationNotice(cmd) {
 		return
 	}
 	var projectRoot string
@@ -138,6 +134,20 @@ func printMigrationNotice(cmd *cobra.Command) {
 	}
 
 	presenter.Warn(cmd.Context(), "this project has v1alpha1 files. Run 'windsor migrate' to convert them.\n  "+strings.Join(files, "\n  "))
+}
+
+// wantsMigrationNotice reports whether cmd or one of its parents carries the notice mark.
+// It returns false for 'env --hook'.
+func wantsMigrationNotice(cmd *cobra.Command) bool {
+	if hookFlag := cmd.Flags().Lookup("hook"); hookFlag != nil && hookFlag.Value.String() == "true" {
+		return false
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[migrationNoticeAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
 }
 
 // init registers the migrate command and its --dry-run flag.

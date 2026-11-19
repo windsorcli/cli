@@ -34,8 +34,9 @@ windsor env
 # tcsh
 eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`hook`](hook.md), [`exec`](exec.md)",
-		"docs.source":  "cmd/env.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`hook`](hook.md), [`exec`](exec.md)",
+		"docs.source":             "cmd/env.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

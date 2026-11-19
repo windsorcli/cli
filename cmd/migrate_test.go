@@ -129,39 +129,55 @@ func TestMigrateCmd(t *testing.T) {
 }
 
 func TestMigrationNotice(t *testing.T) {
-	t.Run("PrintsForV1alpha1Project", func(t *testing.T) {
-		// Given a v1alpha1 project and a command that loads it
-		_, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": migrateV1Root}, "context", "get")
+	v1 := map[string]string{"windsor.yaml": migrateV1Root}
 
-		// When running the command
-		_ = cliCmd.Execute()
+	t.Run("PrintsForMarkedCommands", func(t *testing.T) {
+		for _, args := range [][]string{{"env"}, {"upgrade", "node"}} {
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				resetEnvFlags(t)
+				t.Cleanup(func() { resetEnvFlags(t) })
 
-		// Then stderr names the file and the command
-		for _, want := range []string{"windsor.yaml", "windsor migrate"} {
-			if !strings.Contains(stderr.String(), want) {
-				t.Errorf("expected %q in %q", want, stderr.String())
-			}
+				// Given a v1alpha1 project and a command that carries the notice mark
+				_, stderr, _ := setupMigrateProject(t, v1, args...)
+
+				// When running the command
+				_ = cliCmd.Execute()
+
+				// Then stderr names the file and the command
+				for _, want := range []string{"windsor.yaml", "windsor migrate"} {
+					if !strings.Contains(stderr.String(), want) {
+						t.Errorf("expected %q in %q", want, stderr.String())
+					}
+				}
+			})
 		}
 	})
 
-	t.Run("SilentForHook", func(t *testing.T) {
-		// Given a v1alpha1 project
-		stdout, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": migrateV1Root}, "env", "--hook")
+	t.Run("SilentForUnmarkedAndHookCommands", func(t *testing.T) {
+		for _, args := range [][]string{{"env", "--hook"}, {"list"}, {"get", "context"}, {"build-id"}} {
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				resetEnvFlags(t)
+				t.Cleanup(func() { resetEnvFlags(t) })
 
-		// When running the hook path
-		_ = cliCmd.Execute()
+				// Given a v1alpha1 project and a command without the mark
+				stdout, stderr, _ := setupMigrateProject(t, v1, args...)
 
-		// Then no notice appears on either stream
-		if strings.Contains(stderr.String(), "windsor migrate") || strings.Contains(stdout.String(), "windsor migrate") {
-			t.Errorf("unexpected notice: stdout %q stderr %q", stdout.String(), stderr.String())
+				// When running the command
+				_ = cliCmd.Execute()
+
+				// Then no notice appears on either stream
+				if strings.Contains(stderr.String(), "windsor migrate") || strings.Contains(stdout.String(), "windsor migrate") {
+					t.Errorf("unexpected notice: stdout %q stderr %q", stdout.String(), stderr.String())
+				}
+			})
 		}
 	})
 
 	t.Run("SilentForV1alpha2Project", func(t *testing.T) {
 		// Given a v1alpha2 project
-		_, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": "version: v1alpha2\n"}, "context", "get")
+		_, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": "version: v1alpha2\n"}, "env")
 
-		// When running the command
+		// When running a marked command
 		_ = cliCmd.Execute()
 
 		// Then no notice appears
