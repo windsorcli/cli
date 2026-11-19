@@ -144,6 +144,19 @@ func TestMigrationNotice(t *testing.T) {
 		}
 	})
 
+	t.Run("SilentForHook", func(t *testing.T) {
+		// Given a v1alpha1 project
+		stdout, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": migrateV1Root}, "env", "--hook")
+
+		// When running the hook path
+		_ = cliCmd.Execute()
+
+		// Then no notice appears on either stream
+		if strings.Contains(stderr.String(), "windsor migrate") || strings.Contains(stdout.String(), "windsor migrate") {
+			t.Errorf("unexpected notice: stdout %q stderr %q", stdout.String(), stderr.String())
+		}
+	})
+
 	t.Run("SilentForV1alpha2Project", func(t *testing.T) {
 		// Given a v1alpha2 project
 		_, stderr, _ := setupMigrateProject(t, map[string]string{"windsor.yaml": "version: v1alpha2\n"}, "context", "get")

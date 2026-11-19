@@ -5,12 +5,10 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/migrate"
@@ -98,21 +96,21 @@ func requireMigratedProject(projectRoot string) error {
 // Migration Notice
 // =============================================================================
 
-// sessionTokenPattern matches a session token that is safe to use in a file name.
-var sessionTokenPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
-
 // noticeSkipCommands lists the commands that never print the migration notice.
 var noticeSkipCommands = map[string]bool{
 	"migrate": true, "init": true, "version": true, "hook": true,
 	"help": true, "completion": true, "__complete": true, "__completeNoDesc": true,
 }
 
-// printMigrationNotice prints one notice to stderr when the project holds v1alpha1 files.
-// The notice names each file and says to run 'windsor migrate'. The shell hook runs 'env --hook'
-// on every prompt, so that command prints the notice once per shell session, tracked by a marker file
-// named after WINDSOR_SESSION_TOKEN in .windsor. It ignores every error, so a notice never fails a command.
+// printMigrationNotice writes one warning through the presenter when the project holds v1alpha1 files.
+// The warning names each file and says to run 'windsor migrate'. The shell hook runs 'env --hook'
+// on every directory change, so that command prints nothing. The function ignores every error,
+// so a notice never fails a command.
 func printMigrationNotice(cmd *cobra.Command) {
 	if noticeSkipCommands[cmd.Name()] {
+		return
+	}
+	if hookFlag := cmd.Flags().Lookup("hook"); hookFlag != nil && hookFlag.Value.String() == "true" {
 		return
 	}
 	var projectRoot string
@@ -139,20 +137,7 @@ func printMigrationNotice(cmd *cobra.Command) {
 		return
 	}
 
-	if hookFlag := cmd.Flags().Lookup("hook"); cmd.Name() == "env" && hookFlag != nil && hookFlag.Value.String() == "true" {
-		if token := os.Getenv("WINDSOR_SESSION_TOKEN"); sessionTokenPattern.MatchString(token) {
-			marker := filepath.Join(projectRoot, ".windsor", ".migrate-notice."+token)
-			if _, err := os.Stat(marker); err == nil { // #nosec G703 -- the token matches [A-Za-z0-9]+, so it cannot leave .windsor
-				return
-			}
-			if err := os.MkdirAll(filepath.Dir(marker), 0750); err == nil { // #nosec G703 -- same token check
-				_ = os.WriteFile(marker, nil, 0600) // #nosec G703 -- same token check
-			}
-		}
-	}
-
-	fmt.Fprintf(cmd.ErrOrStderr(), "Notice: this project has v1alpha1 files. Run 'windsor migrate' to convert them.\n  %s\n",
-		strings.Join(files, "\n  "))
+	presenter.Warn(cmd.Context(), "this project has v1alpha1 files. Run 'windsor migrate' to convert them.\n  "+strings.Join(files, "\n  "))
 }
 
 // init registers the migrate command and its --dry-run flag.

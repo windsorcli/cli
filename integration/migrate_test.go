@@ -160,19 +160,17 @@ func TestMigrate_NoticeAndInitStop(t *testing.T) {
 	}
 }
 
-// TestMigrate_HookNoticeOncePerSession verifies that `env --hook` prints the notice on the first run of a
-// shell session and stays silent on the second.
-func TestMigrate_HookNoticeOncePerSession(t *testing.T) {
+// TestMigrate_HookIsSilent verifies that `env --hook` writes nothing to stdout or stderr
+// in a v1alpha1 project, in a fresh session and in a repeat run.
+func TestMigrate_HookIsSilent(t *testing.T) {
 	t.Parallel()
 	dir, env := migrateProject(t, map[string]string{"windsor.yaml": migrateRoot})
 	env = append(env, "WINDSOR_SESSION_TOKEN=abc1234")
 
-	_, first, _ := helpers.RunCLI(dir, []string{"env", "--hook"}, env)
-	if !strings.Contains(string(first), "windsor migrate") {
-		t.Errorf("expected the notice on the first run, got %s", first)
-	}
-	_, second, _ := helpers.RunCLI(dir, []string{"env", "--hook"}, env)
-	if strings.Contains(string(second), "windsor migrate") {
-		t.Errorf("expected no notice on the second run, got %s", second)
+	for run := 1; run <= 2; run++ {
+		stdout, stderr, _ := helpers.RunCLI(dir, []string{"env", "--hook"}, env)
+		if strings.Contains(string(stdout), "windsor migrate") || strings.Contains(string(stderr), "windsor migrate") {
+			t.Errorf("run %d: expected no notice, got stdout %q stderr %q", run, stdout, stderr)
+		}
 	}
 }
