@@ -235,3 +235,43 @@ func TestRenderForDisplay(t *testing.T) {
 		}
 	})
 }
+
+func TestCollapseLongStrings(t *testing.T) {
+	lines := func(n int) string {
+		s := ""
+		for i := 0; i < n; i++ {
+			s += "line\n"
+		}
+		return s
+	}
+
+	t.Run("ReplacesLongStringsInNestedInputs", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"patches": []any{map[string]any{"contents": lines(142)}},
+					"short":   lines(20),
+				},
+			}},
+			Substitutions: map[string]string{"big": lines(21)},
+		}
+		got := blueprint.CollapseLongStrings(bp).(*blueprintv1alpha1.Blueprint)
+		contents := got.TerraformComponents[0].Inputs["patches"].([]any)[0].(map[string]any)["contents"]
+		if contents != "<multi-line string, 142 lines; use --full to expand>" {
+			t.Errorf("Expected placeholder, got %v", contents)
+		}
+		if got.TerraformComponents[0].Inputs["short"] != lines(20) {
+			t.Error("Expected a 20-line string to stay unchanged")
+		}
+		if got.Substitutions["big"] != "<multi-line string, 21 lines; use --full to expand>" {
+			t.Errorf("Expected placeholder for substitution, got %q", got.Substitutions["big"])
+		}
+	})
+
+	t.Run("PassesNonPointerResourceThrough", func(t *testing.T) {
+		if got := blueprint.CollapseLongStrings("text"); got != "text" {
+			t.Errorf("Expected unchanged resource, got %v", got)
+		}
+	})
+}

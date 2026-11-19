@@ -144,6 +144,40 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesMultilineStringsAsLiteralBlocksThatRoundTrip", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error { return nil }
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+		description := "first line\nsecond line\n"
+		bp := &blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata:   blueprintv1alpha1.Metadata{Name: "test-blueprint", Description: description},
+		}
+
+		if err := writer.Write(bp, true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if !strings.Contains(string(writtenData), "description: |") {
+			t.Errorf("Expected literal block, got:\n%s", writtenData)
+		}
+		var back blueprintv1alpha1.Blueprint
+		if err := writer.Shims().YamlUnmarshal(writtenData, &back); err != nil {
+			t.Fatalf("Expected valid YAML, got %v", err)
+		}
+		if back.Metadata.Description != description {
+			t.Errorf("Expected description to round trip, got %q", back.Metadata.Description)
+		}
+	})
+
 	t.Run("OmitsComposedBackendFromReferentialForm", func(t *testing.T) {
 		// Given a composed blueprint whose backend comes from the facets
 		mocks := setupWriterMocks(t)

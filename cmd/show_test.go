@@ -87,6 +87,7 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 				Inputs: map[string]any{
 					"deferred": "${terraform_output(\"cluster\", \"endpoint\")}",
 					"literal":  "value",
+					"long":     strings.Repeat("line\n", 25),
 				},
 			},
 		},
@@ -140,6 +141,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		*cliCmd.ShowBlueprintJSON = false
 		*cliCmd.ShowBlueprintRaw = false
+		*cliCmd.ShowBlueprintFull = false
 		cmd := &cobra.Command{
 			Use:          "blueprint",
 			Short:        "Display the fully rendered blueprint",
@@ -295,6 +297,59 @@ func TestShowBlueprintCmd(t *testing.T) {
 
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
+		}
+	})
+
+	runShowBlueprint := func(t *testing.T, args ...string) string {
+		t.Helper()
+		mocks := setupShowTest(t)
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp})
+		stdout, _, closePipes := setupOutput(t)
+		cmd := createTestCmd()
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		cmd.SetArgs(args)
+		_ = cmd.Execute()
+		closePipes()
+		return stdout.String()
+	}
+	const placeholder = "<multi-line string, 25 lines; use --full to expand>"
+
+	t.Run("YAMLCollapsesLongStrings", func(t *testing.T) {
+		output := runShowBlueprint(t)
+		if !strings.Contains(output, placeholder) {
+			t.Errorf("Expected placeholder in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("FullYAMLPrintsLongStringsAsLiteralBlock", func(t *testing.T) {
+		output := runShowBlueprint(t, "--full")
+		if strings.Contains(output, placeholder) {
+			t.Errorf("Expected no placeholder with --full, got:\n%s", output)
+		}
+		if !strings.Contains(output, "long: |") {
+			t.Errorf("Expected literal block style, got:\n%s", output)
+		}
+	})
+
+	t.Run("JSONAlwaysPrintsFullValues", func(t *testing.T) {
+		output := runShowBlueprint(t, "--json")
+		if strings.Contains(output, placeholder) {
+			t.Errorf("Expected no placeholder in JSON, got:\n%s", output)
+		}
+		if !strings.Contains(output, strings.Repeat("line\\n", 25)) {
+			t.Errorf("Expected full string in JSON, got:\n%s", output)
+		}
+	})
+
+	t.Run("FullCombinesWithRaw", func(t *testing.T) {
+		output := runShowBlueprint(t, "--full", "--raw")
+		if strings.Contains(output, placeholder) || strings.Contains(output, "<deferred>") {
+			t.Errorf("Expected full raw output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "terraform_output") {
+			t.Errorf("Expected deferred expression text, got:\n%s", output)
 		}
 	})
 

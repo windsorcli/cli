@@ -76,6 +76,7 @@ var (
 	ShowBlueprintCmd          = showBlueprintCmd
 	ShowBlueprintJSON         = &showBlueprintJSON
 	ShowBlueprintRaw          = &showBlueprintRaw
+	ShowBlueprintFull         = &showBlueprintFull
 	ShowCmd                   = showCmd
 	ShowKustomizationCmd      = showKustomizationCmd
 	ShowKustomizationJSON     = &showKustomizationJSON
