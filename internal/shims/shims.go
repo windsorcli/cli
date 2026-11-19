@@ -63,7 +63,7 @@ func NewShims() *Shims {
 		Setenv:        os.Setenv,
 		LookupEnv:     os.LookupEnv,
 		Goos:          func() string { return runtime.GOOS },
-		YamlMarshal:   func(v any) ([]byte, error) { return yaml.Marshal(v) },
+		YamlMarshal:   func(v any) ([]byte, error) { return yaml.MarshalWithOptions(v, yaml.UseLiteralStyleIfMultiline(true)) },
 		YamlUnmarshal: func(data []byte, v any) error { return yaml.Unmarshal(data, v) },
 		JsonMarshal:   json.Marshal,
 		JsonUnmarshal: json.Unmarshal,

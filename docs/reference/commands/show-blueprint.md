@@ -7,12 +7,13 @@ description: "Display the fully rendered blueprint."
 windsor show blueprint [flags]
 ```
 
-Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.
+Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead. YAML output replaces a string longer than 20 lines with a placeholder; use --full to print every value. JSON output always prints every value.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--full` | `false` | Print strings longer than 20 lines in full instead of a placeholder. |
 | `--json` | `false` | Output as JSON instead of YAML. |
 | `--raw` | `false` | Keep deferred expressions as text instead of <deferred>. |
 
@@ -21,6 +22,9 @@ Print the fully composed blueprint to stdout, including all fields from underlyi
 ```sh
 # Print the composed blueprint as YAML
 windsor show blueprint
+
+# Print long multi-line strings in full
+windsor show blueprint --full
 
 # Same, but keep deferred expressions visible
 windsor show blueprint --raw

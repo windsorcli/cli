@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/internal/shims"
@@ -184,6 +185,26 @@ func TestShims_Defaults(t *testing.T) {
 		// Then the override runs instead of the filesystem
 		if err != nil || string(data) != "fake" {
 			t.Errorf("expected override result, got %q (%v)", data, err)
+		}
+	})
+}
+
+func TestShims_YamlMarshalLiteralStyle(t *testing.T) {
+	t.Run("PrintsMultilineStringsAsLiteralBlocks", func(t *testing.T) {
+		s := shims.NewShims()
+		in := map[string]string{"k": "a: 1\nb: 2\n"}
+
+		out, err := s.YamlMarshal(in)
+		if err != nil {
+			t.Fatalf("YamlMarshal: %v", err)
+		}
+
+		if !strings.Contains(string(out), "k: |") {
+			t.Errorf("Expected literal block, got %q", out)
+		}
+		var back map[string]string
+		if err := s.YamlUnmarshal(out, &back); err != nil || back["k"] != in["k"] {
+			t.Errorf("Expected round trip, got %v, %v", back, err)
 		}
 	})
 }

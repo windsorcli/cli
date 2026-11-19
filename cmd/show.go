@@ -24,6 +24,7 @@ import (
 
 var showBlueprintJSON bool
 var showBlueprintRaw bool
+var showBlueprintFull bool
 var showKustomizationJSON bool
 var showValuesJSON bool
 var showArtifactsChartsTo string
@@ -134,9 +135,12 @@ windsor show artifacts --all -o cyclonedx`,
 var showBlueprintCmd = &cobra.Command{
 	Use:   "blueprint",
 	Short: "Display the fully rendered blueprint.",
-	Long:  `Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Long:  `Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead. YAML output replaces a string longer than 20 lines with a placeholder; use --full to print every value. JSON output always prints every value.`,
 	Example: `# Print the composed blueprint as YAML
 windsor show blueprint
+
+# Print long multi-line strings in full
+windsor show blueprint --full
 
 # Same, but keep deferred expressions visible
 windsor show blueprint --raw
@@ -159,6 +163,9 @@ windsor show blueprint --json`,
 		}
 
 		resource := blueprintcomposer.RenderForDisplay(blueprint, showBlueprintRaw, deferredPaths)
+		if !showBlueprintJSON && !showBlueprintFull {
+			resource = blueprintcomposer.CollapseLongStrings(resource)
+		}
 		if err := outputResource(resource, showBlueprintJSON, "blueprint"); err != nil {
 			return err
 		}
@@ -269,6 +276,7 @@ windsor show values --json`,
 func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML.")
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
+	showBlueprintCmd.Flags().BoolVar(&showBlueprintFull, "full", false, "Print strings longer than 20 lines in full instead of a placeholder.")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML.")
 	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
 	showArtifactsCmd.Flags().StringVar(&showArtifactsChartsTo, "charts-to", "", "Chart registry for chart destinations, e.g. registry.example.com/windsor.")

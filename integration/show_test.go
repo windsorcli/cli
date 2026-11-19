@@ -446,3 +446,18 @@ func TestShowKustomization_KeepsSourceFieldsWhenRemovalConditionIsFalse(t *testi
 		t.Errorf("expected cluster inputs with size and debug, got %v", inputs)
 	}
 }
+
+func TestShowBlueprint_FullAcceptsRawAndJSON(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-composition")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	for _, args := range [][]string{
+		{"show", "blueprint", "--full"},
+		{"show", "blueprint", "--full", "--raw"},
+		{"show", "blueprint", "--full", "--json"},
+	} {
+		if _, stderr, err := helpers.RunCLI(dir, args, env); err != nil {
+			t.Fatalf("%v: %v\nstderr: %s", args, err, stderr)
+		}
+	}
+}
