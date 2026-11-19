@@ -31,8 +31,9 @@ var configureCmd = &cobra.Command{
 	Short: "Configure workstation resources.",
 	Long:  `Configure workstation host/guest resources. Currently supports networking and DNS via the 'network' subcommand.`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`up`](up.md)",
-		"docs.source":  "cmd/configure.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`up`](up.md)",
+		"docs.source":             "cmd/configure.go",
 	},
 }
 

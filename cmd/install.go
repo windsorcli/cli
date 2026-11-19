@@ -21,8 +21,9 @@ Waits until every kustomization is Ready, and fails when one does not become Rea
 	Example: `# Install kustomizations
 windsor install`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
-		"docs.source":  "cmd/install.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
+		"docs.source":             "cmd/install.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

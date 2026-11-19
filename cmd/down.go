@@ -39,8 +39,9 @@ windsor down --destroy
 # Same, scripted
 windsor down --destroy --confirm=local`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)",
-		"docs.source":  "cmd/down.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)",
+		"docs.source":             "cmd/down.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

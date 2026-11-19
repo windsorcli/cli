@@ -62,8 +62,9 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0
 windsor up --to cluster
 windsor up --continue`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
-		"docs.source":  "cmd/up.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.source":             "cmd/up.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

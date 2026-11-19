@@ -55,8 +55,9 @@ windsor plan --summary --json
 # Just terraform, just one component
 windsor plan terraform cluster`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
-		"docs.source":  "cmd/plan.go",
+		migrationNoticeAnnotation: "true",
+		"docs.seealso":            "[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
+		"docs.source":             "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,

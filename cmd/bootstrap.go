@@ -86,6 +86,7 @@ windsor bootstrap prod --yes
 windsor bootstrap --to cluster
 windsor bootstrap --continue`,
 	Annotations: map[string]string{
+		migrationNoticeAnnotation: "true",
 		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)\n" +
 			"[Global flags](../global-flags.md) — `--no-cache`, `--lock-timeout`, `--verbose`",
 		"docs.source": "cmd/bootstrap.go",
