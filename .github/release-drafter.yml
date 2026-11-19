@@ -6,34 +6,30 @@ categories:
       - 'feature'
       - 'enhancement'
   - title: 'Bug Fixes'
-    labels:
-      - 'fix'
-      - 'bugfix'
-      - 'bug'
+    label: 'bug'
+  - title: 'Documentation'
+    label: 'documentation'
   - title: 'Maintenance'
     label: 'chore'
   - title: 'Dependencies'
     collapse-after: 3
-    labels:
-      - 'dependencies'
+    label: 'dependencies'
 change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
 change-title-escapes: '\<*_&'
 version-resolver:
   major:
     labels:
-      - 'major'
       - 'breaking'
   minor:
     labels:
       - 'feature'
   patch:
     labels:
-      - 'fix'
-      - 'bugfix'
       - 'bug'
-      - 'chore'
-      - 'dependencies'
       - 'enhancement'
+      - 'chore'
+      - 'documentation'
+      - 'dependencies'
   default: patch
 template: |
   ## Changes
