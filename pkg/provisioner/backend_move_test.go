@@ -390,6 +390,47 @@ func TestProvisioner_Up_BackendMove(t *testing.T) {
 	})
 }
 
+func TestProvisioner_Up_BackendMoveMismatchReport(t *testing.T) {
+	cases := []struct {
+		name string
+		copy func(*terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot
+		want string
+	}{
+		{"CopyReadsBackEmpty", func(*terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot { return nil }, "kubernetes: read back empty"},
+		{"CopyHasLowerSerial", func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
+			c := *s
+			c.Serial--
+			return &c
+		}, "kubernetes: lineage a, serial 4, 3 resources"},
+		{"CopyHasOtherLineage", func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
+			c := *s
+			c.Lineage = "b"
+			return &c
+		}, "kubernetes: lineage b, serial 5, 3 resources"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given a copy that differs from the local source
+			f := setupMoveFixture(t, "kubernetes")
+			f.pointers["cni"], f.local["cni"] = "local", snapshot("a")
+			f.copyFn = tc.copy
+
+			// When Up is called
+			_, err := f.prov.Up(context.Background(), componentsBlueprint("cni"))
+
+			// Then the error reports both states
+			if err == nil {
+				t.Fatal("Expected a mismatch error")
+			}
+			for _, want := range []string{"local: lineage a, serial 5, 3 resources", tc.want} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Expected %q in %q", want, err.Error())
+				}
+			}
+		})
+	}
+}
+
 func TestProvisioner_Apply_BackendMove(t *testing.T) {
 	t.Run("RefusesAComponentWithAPendingMove", func(t *testing.T) {
 		// Given a component whose state is still local on a kubernetes backend
