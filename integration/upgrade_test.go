@@ -17,6 +17,18 @@ import (
 // Integration Tests — upgrade (blueprint)
 // =============================================================================
 
+// seedUpgradeKubeconfig gives the local context a kubeconfig, so upgrade passes its cluster check.
+func seedUpgradeKubeconfig(t *testing.T, dir string) {
+	t.Helper()
+	kubeDir := filepath.Join(dir, "contexts", "local", ".kube")
+	if err := os.MkdirAll(kubeDir, 0755); err != nil {
+		t.Fatalf("create kube dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kubeDir, "config"), []byte("apiVersion: v1\nkind: Config\n"), 0600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+}
+
 func TestUpgrade_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
@@ -39,6 +51,7 @@ func TestUpgrade_RunsBlueprintFlowInLocalContext(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// `upgrade --yes` drives terraform + the blueprint install/wait/prune flow. With no live
 	// cluster the install/wait phase fails, which proves the command reaches real
@@ -53,6 +66,29 @@ func TestUpgrade_RunsBlueprintFlowInLocalContext(t *testing.T) {
 	}
 }
 
+func TestUpgrade_StopsWhenContextHasNoKubeconfig(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// With no kubeconfig there is no cluster to hold the version marker, so upgrade stops
+	// before the plan and before the terraform apply.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--yes"}, env)
+	if err == nil {
+		t.Fatal("expected upgrade to fail without a kubeconfig, got success")
+	}
+	if !strings.Contains(string(stderr), "no kubeconfig") || !strings.Contains(string(stderr), "windsor bootstrap") {
+		t.Errorf("expected the no-kubeconfig message with the bootstrap hint, got: %s", stderr)
+	}
+	if strings.Contains(string(stdout)+string(stderr), "Applying terraform") {
+		t.Errorf("expected no terraform apply, got: %s", stderr)
+	}
+}
+
 func TestUpgrade_RefusesWithoutYes(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
@@ -61,6 +97,7 @@ func TestUpgrade_RefusesWithoutYes(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// Bare `upgrade` rewrites blueprint.yaml and reconciles the cluster, so it must refuse up
 	// front without --yes and point the operator at the read-only preview.
@@ -81,6 +118,7 @@ func TestUpgrade_SourceRejectsUndeclaredSource(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// --source must refuse a source the blueprint does not declare, before any cluster work —
 	// adding a source is a structural edit to blueprint.yaml, not a retarget.
@@ -101,6 +139,7 @@ func TestUpgrade_RefusesDowngrade(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// Retargeting a declared source to an older semver of the same repository is forward-only by
 	// default: it must refuse before writing or reconciling and point at --allow-downgrade.
@@ -122,6 +161,7 @@ func TestUpgrade_AllowsDowngradeWithFlag(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// With --allow-downgrade the guard is cleared: it warns that data is not reversed and proceeds
 	// past the refusal (reconcile then fails without a live cluster, which is expected here).
@@ -145,6 +185,7 @@ func TestUpgrade_RetargetRegeneratesTerraformModules(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// The retarget moves core to a version that renames the module input. The shim must load the
 	// new version's module before terraform runs; a missing cluster fails the command later.
@@ -178,6 +219,7 @@ func TestUpgrade_SourceReportsChangelogOfNewVersion(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// The new version sets changelogUrl, so upgrade reports it before reconcile fails without a cluster.
 	_, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.2.0", "--yes"}, env)
@@ -197,6 +239,7 @@ func TestUpgrade_SourceReportsNoChangelogWhenMetadataSetsNone(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 
 	// The new version sets no changelogUrl, so upgrade prints no changelog line.
 	stdout, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.2.0", "--yes"}, env)
@@ -216,6 +259,7 @@ func TestUpgrade_AcceptsYesFlag(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
+	seedUpgradeKubeconfig(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--yes"}, env)
 	if strings.Contains(string(stderr), "unknown flag") {
 		t.Errorf("--yes should be a recognised flag on upgrade, got: %s", stderr)
