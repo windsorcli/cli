@@ -19,13 +19,17 @@ import (
 // Types
 // =============================================================================
 
-// BackendMove describes a pending change of the terraform backend type. From is the backend type
-// that holds the state of the first pending component. To is the configured backend type.
-// Components lists the IDs of the components with a pending move, in blueprint order.
+// BackendMove describes a pending change of the terraform backend type. To is the configured backend
+// type. Components lists the components with a pending move, in blueprint order.
 type BackendMove struct {
-	From       string
 	To         string
-	Components []string
+	Components []ComponentMove
+}
+
+// ComponentMove names one component with a pending move and the backend type that holds its state.
+type ComponentMove struct {
+	ID   string
+	From string
 }
 
 // =============================================================================
@@ -60,11 +64,23 @@ func (i *Provisioner) PendingBackendMove(blueprint *blueprintv1alpha1.Blueprint)
 			continue
 		}
 		if move == nil {
-			move = &BackendMove{From: from, To: to}
+			move = &BackendMove{To: to}
 		}
-		move.Components = append(move.Components, c.GetID())
+		move.Components = append(move.Components, ComponentMove{ID: c.GetID(), From: from})
 	}
 	return move, nil
+}
+
+// Sources returns each backend type that holds the state of a pending component, once, in the
+// order of the first component that uses it.
+func (m *BackendMove) Sources() []string {
+	var sources []string
+	for _, c := range m.Components {
+		if !slices.Contains(sources, c.From) {
+			sources = append(sources, c.From)
+		}
+	}
+	return sources
 }
 
 // =============================================================================
@@ -109,8 +125,8 @@ func (i *Provisioner) pendingMoveSource(componentID, to string) (string, error) 
 	return "local", nil
 }
 
-// checkBackendMoveReachable returns an error when a pending move reads or writes the kubernetes
-// backend and Windsor cannot reach the cluster. It ignores the backend components that
+// checkBackendMoveReachable returns an error when the move of any component reads or writes the
+// kubernetes backend and Windsor cannot reach the cluster. It ignores the backend components that
 // applyWithBackendPivot moves itself, because the pivot creates the backend before it moves them.
 // It runs before any change, so a refused run changes nothing.
 func (i *Provisioner) checkBackendMoveReachable(blueprint *blueprintv1alpha1.Blueprint) error {
@@ -118,17 +134,17 @@ func (i *Provisioner) checkBackendMoveReachable(blueprint *blueprintv1alpha1.Blu
 	if err != nil || move == nil {
 		return err
 	}
-	if move.From != "kubernetes" && move.To != "kubernetes" {
-		return nil
-	}
 	tier := i.backendTierIDs(blueprint)
-	pending := slices.DeleteFunc(slices.Clone(move.Components), func(id string) bool {
-		return slices.Contains(tier, id)
-	})
-	if len(pending) == 0 || i.clusterReachable() {
-		return nil
+	for _, c := range move.Components {
+		if slices.Contains(tier, c.ID) || (c.From != "kubernetes" && move.To != "kubernetes") {
+			continue
+		}
+		if i.clusterReachable() {
+			return nil
+		}
+		return unreachableMoveError(c.From, move.To)
 	}
-	return unreachableMoveError(move)
+	return nil
 }
 
 // moveBackendState moves the state of each enabled component with a pending move to the configured
@@ -321,7 +337,7 @@ func (i *Provisioner) planInStateBackend(blueprint *blueprintv1alpha1.Blueprint,
 			continue
 		}
 		if r.backend == "kubernetes" && !i.clusterReachable() {
-			return unreachableMoveError(&BackendMove{From: r.backend, To: to})
+			return unreachableMoveError(r.backend, to)
 		}
 		if err := i.withBackendType(context.Background(), r.backend, "plan", func() error {
 			return fn(&subset)
@@ -344,7 +360,7 @@ func (i *Provisioner) planComponentInStateBackend(componentID string, fn func() 
 		return fn()
 	}
 	if from == "kubernetes" && !i.clusterReachable() {
-		return unreachableMoveError(&BackendMove{From: from, To: to})
+		return unreachableMoveError(from, to)
 	}
 	return i.withBackendType(context.Background(), from, "plan", fn)
 }
@@ -363,11 +379,12 @@ func stateCopyMatches(source, copied *terraforminfra.StateSnapshot) bool {
 	return copied.Lineage == source.Lineage && copied.Resources == source.Resources && copied.Serial >= source.Serial
 }
 
-// unreachableMoveError returns the error for a backend move that needs a cluster Windsor cannot reach.
-func unreachableMoveError(move *BackendMove) error {
+// unreachableMoveError returns the error for a move from the from backend to the to backend that
+// needs a cluster Windsor cannot reach.
+func unreachableMoveError(from, to string) error {
 	return werror.New(
-		fmt.Sprintf("Windsor cannot reach the cluster to move terraform state from the %s backend to the %s backend", move.From, move.To),
-		fmt.Sprintf("Make the cluster reachable, then run the command again. To stop the move, set terraform.backend.type back to %s.", move.From),
+		fmt.Sprintf("Windsor cannot reach the cluster to move terraform state from the %s backend to the %s backend", from, to),
+		fmt.Sprintf("Make the cluster reachable, then run the command again. To stop the move, set terraform.backend.type back to %s.", from),
 		nil,
 	)
 }

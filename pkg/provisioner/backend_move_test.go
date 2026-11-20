@@ -170,8 +170,28 @@ func TestProvisioner_PendingBackendMove(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if move == nil || move.From != "local" || move.To != "kubernetes" || !slices.Equal(move.Components, []string{"cluster", "cni"}) {
+		want := []provisioner.ComponentMove{{ID: "cluster", From: "local"}, {ID: "cni", From: "local"}}
+		if move == nil || move.To != "kubernetes" || !slices.Equal(move.Components, want) {
 			t.Errorf("Expected a local to kubernetes move of cluster and cni, got %+v", move)
+		}
+	})
+
+	t.Run("RecordsTheSourceOfEachComponent", func(t *testing.T) {
+		// Given an s3 backend, one component with local state, and one with state in the cluster
+		f := setupMoveFixture(t, "s3")
+		f.pointers["cluster"], f.local["cluster"] = "local", snapshot("a")
+		f.pointers["cni"] = "kubernetes"
+
+		// When PendingBackendMove is called
+		move, err := f.prov.PendingBackendMove(componentsBlueprint("cluster", "cni"))
+
+		// Then each component keeps its own source, and Sources names both
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := []provisioner.ComponentMove{{ID: "cluster", From: "local"}, {ID: "cni", From: "kubernetes"}}
+		if move == nil || !slices.Equal(move.Components, want) || !slices.Equal(move.Sources(), []string{"local", "kubernetes"}) {
+			t.Errorf("Expected sources local and kubernetes, got %+v", move)
 		}
 	})
 
@@ -315,6 +335,27 @@ func TestProvisioner_Up_BackendMove(t *testing.T) {
 		// Then Up refuses before any state operation or apply
 		if err == nil || !strings.Contains(err.Error(), "cannot reach the cluster") {
 			t.Fatalf("Expected an unreachable cluster error, got %v", err)
+		}
+		if len(f.ops) != 0 {
+			t.Errorf("Expected no operation, got %v", f.ops)
+		}
+	})
+
+	t.Run("RefusesWhenALaterComponentReadsAnUnreachableCluster", func(t *testing.T) {
+		// Given an s3 backend, a first component on local state, a second on cluster state, and no cluster
+		f := setupMoveFixture(t, "s3")
+		f.pointers["cluster"], f.local["cluster"] = "local", snapshot("a")
+		f.pointers["cni"], f.remote["cni"] = "kubernetes", snapshot("b")
+		f.mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(context.Context, string, func(string), ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+
+		// When Up is called
+		_, err := f.prov.Up(context.Background(), componentsBlueprint("cluster", "cni"))
+
+		// Then Up refuses before any state operation and names the kubernetes source
+		if err == nil || !strings.Contains(err.Error(), "from the kubernetes backend to the s3 backend") {
+			t.Fatalf("Expected an unreachable cluster error for the kubernetes source, got %v", err)
 		}
 		if len(f.ops) != 0 {
 			t.Errorf("Expected no operation, got %v", f.ops)

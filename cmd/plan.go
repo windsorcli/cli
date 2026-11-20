@@ -372,8 +372,8 @@ func describePlanMode(cmd *cobra.Command, proj *project.Project, blueprint *blue
 }
 
 // describeBackendMove prints one line to stderr when the terraform state of some components is still
-// in another backend than the configured one. The plan reads that state, and apply moves it. It is
-// best-effort: an error prints nothing.
+// in another backend than the configured one. The line names each backend that holds such state. The
+// plan reads that state, and apply moves it. It is best-effort: an error prints nothing.
 func describeBackendMove(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) {
 	move, err := proj.Provisioner.PendingBackendMove(blueprint)
 	if err != nil || move == nil {
@@ -383,7 +383,7 @@ func describeBackendMove(cmd *cobra.Command, proj *project.Project, blueprint *b
 	if len(move.Components) == 1 {
 		noun = "component"
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "The terraform backend type changed from %s to %s. windsor apply moves the state of %d %s.\n", move.From, move.To, len(move.Components), noun)
+	fmt.Fprintf(cmd.ErrOrStderr(), "The terraform backend type changed from %s to %s. windsor apply moves the state of %d %s.\n", strings.Join(move.Sources(), " and "), move.To, len(move.Components), noun)
 }
 
 // describePendingPrunes prints to stderr the kustomizations a `windsor upgrade` would prune — those

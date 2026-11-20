@@ -350,6 +350,53 @@ func TestPlanTerraformCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("NamesEveryBackendThatHoldsPendingState", func(t *testing.T) {
+		// Given an s3 backend, one component on local state, and one on cluster state
+		mocks := setupPlanTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata:            blueprintv1alpha1.Metadata{Name: "test"},
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}, {Path: "cni"}},
+			}
+		}
+		mocks.TerraformStack.BackendPointerTypeFunc = func(id string) (string, error) {
+			if id == "cni" {
+				return "kubernetes", nil
+			}
+			return "local", nil
+		}
+		mocks.TerraformStack.HasLocalStateWithResourcesFunc = func(string) (bool, error) { return true, nil }
+		mocks.TerraformStack.PlanFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
+		proj := newPlanProject(mocks)
+
+		// When executing plan terraform for the local component
+		cmd := createTestPlanTerraformCmd()
+		var stderr bytes.Buffer
+		cmd.SetErr(&stderr)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		err := cmd.Execute()
+
+		// Then stderr names both source backends
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		want := "The terraform backend type changed from local and kubernetes to s3. windsor apply moves the state of 2 components."
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("expected %q in stderr, got %q", want, stderr.String())
+		}
+	})
+
 	t.Run("SuccessSummaryFlag", func(t *testing.T) {
 		// Given a plan terraform command with --summary
 		mocks := setupPlanTest(t)
