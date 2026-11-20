@@ -264,8 +264,9 @@ func (i *Provisioner) finishMove(ctx context.Context, blueprint *blueprintv1alph
 }
 
 // verifyStateCopy reads the state of the component in the to backend and returns an error when it
-// does not match source, as stateCopyMatches describes. The error names the from backend, which still
-// holds the state.
+// does not match source, as stateCopyMatches describes. The error gives the lineage, the serial, and
+// the resource count of both states, and says when a state is empty. It names the from backend, which
+// still holds the state.
 func (i *Provisioner) verifyStateCopy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string, source *terraforminfra.StateSnapshot, from, to string) error {
 	copied, err := i.stateSnapshotIn(ctx, blueprint, componentID, to)
 	if err != nil {
@@ -273,7 +274,7 @@ func (i *Provisioner) verifyStateCopy(ctx context.Context, blueprint *blueprintv
 	}
 	if !stateCopyMatches(source, copied) {
 		return werror.New(
-			fmt.Sprintf("the %s state of %s does not match its %s state after the move", to, componentID, from),
+			fmt.Sprintf("the %s state of %s does not match its %s state after the move (%s; %s)", to, componentID, from, describeState(from, source), describeState(to, copied)),
 			fmt.Sprintf("Windsor keeps the %s state. Compare the two states, then run the command again.", from),
 			nil,
 		)
@@ -377,6 +378,15 @@ func stateCopyMatches(source, copied *terraforminfra.StateSnapshot) bool {
 		return false
 	}
 	return copied.Lineage == source.Lineage && copied.Resources == source.Resources && copied.Serial >= source.Serial
+}
+
+// describeState returns the backend type and the lineage, serial, and resource count of snapshot. It
+// returns the backend type and "read back empty" for a nil snapshot.
+func describeState(backendType string, snapshot *terraforminfra.StateSnapshot) string {
+	if snapshot == nil {
+		return fmt.Sprintf("%s: read back empty", backendType)
+	}
+	return fmt.Sprintf("%s: lineage %s, serial %d, %d resources", backendType, snapshot.Lineage, snapshot.Serial, snapshot.Resources)
 }
 
 // unreachableMoveError returns the error for a move from the from backend to the to backend that
