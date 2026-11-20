@@ -358,7 +358,7 @@ func (i *Provisioner) PrepareLocalTeardown(ctx context.Context, blueprint *bluep
 	}
 
 	if _, err := i.MigrateState(ctx, blueprint); err != nil {
-		if i.clusterReachableForTeardown() {
+		if i.clusterReachable() {
 			_ = i.configHandler.Set("terraform.backend.type", backendType)
 			return false, werror.Wrap(err, "failed to migrate terraform state to local before teardown")
 		}
@@ -375,7 +375,7 @@ func (i *Provisioner) PivotToLocalIfClusterGone() (bool, error) {
 	if backendType == "" || backendType == "local" {
 		return false, nil
 	}
-	if i.clusterReachableForTeardown() {
+	if i.clusterReachable() {
 		return false, nil
 	}
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
@@ -424,8 +424,8 @@ func (i *Provisioner) checkKubernetesReachableForDestroy() error {
 	return nil
 }
 
-// clusterReachableForTeardown reports whether the kubernetes-backend cluster is present and reachable.
-func (i *Provisioner) clusterReachableForTeardown() bool {
+// clusterReachable reports whether the kubeconfig of the context exists and its cluster is reachable.
+func (i *Provisioner) clusterReachable() bool {
 	if !i.kubeconfigPresent() {
 		return false
 	}

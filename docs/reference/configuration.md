@@ -190,7 +190,7 @@ system-managed and not covered here.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `backend` | `object` | State backend configuration (type plus per-type fields). Windsor passes every field of the selected backend block to terraform init. |
+| `backend` | `object` | State backend configuration (type plus per-type fields). Windsor passes every field of the selected backend block to terraform init. When the type changes on a context that has state, windsor plan reads the state from the previous backend and names the move. windsor apply, up, and bootstrap then move the state of each component and verify each copy. |
 | `enabled` | `boolean` | Whether windsor applies terraform components for this context. |
 | `lock` | `object` | State-lock policy. |
 

@@ -12,6 +12,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
 // =============================================================================
@@ -82,8 +83,10 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 
 // applyWithBackendPivot sets a local backend, migrates the backend components to it, and applies
 // them. Then it migrates them to the configured backend and applies the other components against
-// it. It gives the same result whether the backend exists or not. When a hook halts the backend
-// apply, it stops before the migration. It calls applyDirect, not Up, so it does not recurse.
+// it. It removes the local state file of a backend component only after the copy matches, as
+// verifyStateCopy describes. It gives the same result whether the backend exists or not. When a
+// hook halts the backend apply, it stops before the migration. It calls applyDirect, not Up, so it
+// does not recurse.
 func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
 	nonBackendBP := blueprintWithoutComponents(blueprint, backendComponents)
@@ -106,6 +109,14 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 		return true, nil
 	}
 
+	sources := make(map[string]*terraforminfra.StateSnapshot, len(backendComponents))
+	for _, c := range backendComponents {
+		source, err := i.TerraformStack.LocalStateSnapshot(c.GetID())
+		if err != nil {
+			return false, err
+		}
+		sources[c.GetID()] = source
+	}
 	skipped, err := i.MigrateState(ctx, backendComponentsBP)
 	if err != nil {
 		return false, err
@@ -114,7 +125,15 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 		return false, fmt.Errorf("backend migration skipped components after a successful local apply: %v — their directories should have been materialised by the local apply", skipped)
 	}
 
+	to := i.configuredBackendType()
 	for _, c := range backendComponents {
+		source := sources[c.GetID()]
+		if source == nil || source.Resources == 0 {
+			continue
+		}
+		if err := i.verifyStateCopy(ctx, backendComponentsBP, c.GetID(), source, "local", to); err != nil {
+			return false, err
+		}
 		if err := i.RemoveLocalState(c.GetID()); err != nil {
 			presenter.Warn(ctx, fmt.Sprintf("failed to remove local state file for %q after migration: %v", c.GetID(), err))
 		}
@@ -126,11 +145,16 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 	return i.applyDirect(ctx, nonBackendBP, onApply...)
 }
 
-// withBackendOverride sets terraform.backend.type to "local" while fn runs, then restores the
-// previous value. A failure to restore the value is reported as a warning in ctx.
+// withBackendOverride sets terraform.backend.type to "local" while fn runs, as withBackendType describes.
 func (i *Provisioner) withBackendOverride(ctx context.Context, opLabel string, fn func() error) error {
+	return i.withBackendType(ctx, "local", opLabel, fn)
+}
+
+// withBackendType sets terraform.backend.type to backendType while fn runs, then restores the
+// previous value. A failure to restore the value is reported as a warning in ctx.
+func (i *Provisioner) withBackendType(ctx context.Context, backendType, opLabel string, fn func() error) error {
 	original := i.configHandler.GetTerraformBackendType()
-	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
+	if err := i.configHandler.Set("terraform.backend.type", backendType); err != nil {
 		return werror.Wrap(err, "failed to override backend for %s", opLabel)
 	}
 	defer func() {

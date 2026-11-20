@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1083,9 +1084,9 @@ func TestProvisioner_GetVersionMarker_KubeconfigProbe(t *testing.T) {
 	})
 }
 
-func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
-	t.Run("UpRecoversLeftoverLocalState", func(t *testing.T) {
-		// Given an azurerm backend and components with local state but no remote state
+func TestProvisioner_moveBackendState(t *testing.T) {
+	t.Run("UpMovesLocalStateThatHasNoBackendPointer", func(t *testing.T) {
+		// Given an azurerm backend and components with local state, no backend pointer, and no remote state
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1113,12 +1114,16 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
-			ops = append(ops, fmt.Sprintf("probe-local:%s", componentID))
 			return true, nil
 		}
 		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			ops = append(ops, fmt.Sprintf("probe-remote:%s", componentID))
 			return false, nil
+		}
+		snapshot := &terraforminfra.StateSnapshot{Lineage: "l", Serial: 3, Resources: 2}
+		mockStack.LocalStateSnapshotFunc = func(string) (*terraforminfra.StateSnapshot, error) { return snapshot, nil }
+		mockStack.StateSnapshotFunc = func(*blueprintv1alpha1.Blueprint, string) (*terraforminfra.StateSnapshot, error) {
+			return snapshot, nil
 		}
 		mockStack.InitComponentFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) error {
 			ops = append(ops, fmt.Sprintf("init-component:%s", componentID))
@@ -1145,19 +1150,21 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 
 		// Then each component inits locally, migrates, and drops local state before Up
 		expected := []string{
-			"probe-local:network",
 			"probe-remote:network",
 			"set:local",
 			"init-component:network",
 			"set:azurerm",
 			"migrate-component:network",
+			"set:azurerm",
+			"set:azurerm",
 			"remove-local:network",
-			"probe-local:cluster",
 			"probe-remote:cluster",
 			"set:local",
 			"init-component:cluster",
 			"set:azurerm",
 			"migrate-component:cluster",
+			"set:azurerm",
+			"set:azurerm",
 			"remove-local:cluster",
 			"up",
 		}
@@ -1322,13 +1329,13 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		if !strings.Contains(err.Error(), "auth timeout") {
 			t.Errorf("Expected error to wrap underlying probe error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "recovery sweep aborted") {
-			t.Errorf("Expected error to name the recovery sweep, got: %v", err)
+		if !strings.Contains(err.Error(), "could not read the azurerm backend") {
+			t.Errorf("Expected error to name the backend it could not read, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), `"network"`) {
 			t.Errorf("Expected error to name the affected component, got: %v", err)
 		}
-		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "overwrite valid remote state") {
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "overwrite valid state") {
 			t.Errorf("Expected remediation to explain the data-loss hazard, got: %v", err)
 		}
 		if initCalled {
@@ -1389,14 +1396,8 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		expectedProbed := []string{"crossplane-identity-gcp", "crossplane-identity"}
-		if len(probed) != len(expectedProbed) {
-			t.Fatalf("Expected probes %v, got %v", expectedProbed, probed)
-		}
-		for i, want := range expectedProbed {
-			if probed[i] != want {
-				t.Errorf("probe %d: got %q, want %q (full: %v)", i, probed[i], want, probed)
-			}
+		if len(probed) < 2 || probed[0] != "crossplane-identity-gcp" || !slices.Contains(probed[1:], "crossplane-identity") {
+			t.Errorf("Expected the old ID probed first, then the current ID, got %v", probed)
 		}
 		if !strings.Contains(warnings, "crossplane-identity-gcp") {
 			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", warnings)
