@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -28,6 +29,21 @@ import (
 type tfStateModule struct {
 	Resources    []json.RawMessage `json:"resources"`
 	ChildModules []tfStateModule   `json:"child_modules"`
+}
+
+// StateSnapshot is the identity and the size of one terraform state. Lineage and Serial come from
+// the state file. Resources counts the resource entries at the top level of the state file.
+type StateSnapshot struct {
+	Lineage   string
+	Serial    int64
+	Resources int
+}
+
+// rawState is the part of a terraform state file that StateSnapshot reads.
+type rawState struct {
+	Lineage   string            `json:"lineage"`
+	Serial    int64             `json:"serial"`
+	Resources []json.RawMessage `json:"resources"`
 }
 
 // tfState is the minimal shape of `terraform show -json` we need for state emptiness.
@@ -63,6 +79,82 @@ func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, e
 		return false, werror.Wrap(err, "error parsing local state file %s", statePath)
 	}
 	return len(state.Resources) > 0, nil
+}
+
+// LocalStateSnapshot reads the local state file of the component. It returns nil and no error when
+// the file does not exist. It runs no terraform command.
+func (s *TerraformStack) LocalStateSnapshot(componentID string) (*StateSnapshot, error) {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return nil, werror.Wrap(err, "error resolving local state path for %s", componentID)
+	}
+	data, err := s.shims.ReadFile(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, werror.Wrap(err, "error reading local state file %s", statePath)
+	}
+	snapshot, err := parseStateSnapshot(data)
+	if err != nil {
+		return nil, werror.Wrap(err, "error parsing local state file %s", statePath)
+	}
+	return snapshot, nil
+}
+
+// StateSnapshot reads the state of the component from the configured backend with terraform state
+// pull. It runs a read-only init first, so it moves no state. It returns nil and no error when the
+// backend holds no state for the component.
+func (s *TerraformStack) StateSnapshot(blueprint *blueprintv1alpha1.Blueprint, componentID string) (*StateSnapshot, error) {
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+		return nil, err
+	}
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	pullArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "state", "pull"}
+	output, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, false, scopedKeys), pullArgs...)
+	if err != nil {
+		return nil, werror.Wrap(err, "error reading terraform state for %s", component.Path)
+	}
+	if strings.TrimSpace(output) == "" {
+		return nil, nil
+	}
+	snapshot, err := parseStateSnapshot([]byte(output))
+	if err != nil {
+		return nil, werror.Wrap(err, "error parsing terraform state for %s", component.Path)
+	}
+	return snapshot, nil
+}
+
+// BackendPointerType returns the backend type that the backend pointer of the component records.
+// The pointer is the file that terraform init writes to TF_DATA_DIR. It returns "" when the pointer
+// does not exist or does not parse.
+func (s *TerraformStack) BackendPointerType(componentID string) (string, error) {
+	tfDataDir, err := s.runtime.TerraformProvider.GetTFDataDir(componentID)
+	if err != nil {
+		return "", werror.Wrap(err, "error resolving TF_DATA_DIR for %s", componentID)
+	}
+	data, err := s.shims.ReadFile(filepath.Join(filepath.FromSlash(tfDataDir), "terraform.tfstate"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", werror.Wrap(err, "error reading backend pointer for %s", componentID)
+	}
+	var pointer struct {
+		Backend struct {
+			Type string `json:"type"`
+		} `json:"backend"`
+	}
+	if err := json.Unmarshal(data, &pointer); err != nil {
+		return "", nil
+	}
+	return pointer.Backend.Type, nil
 }
 
 // RemoveLocalState removes the per-component local state file (and its
@@ -315,4 +407,17 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 		return werror.Wrap(err, "error refreshing terraform state for %s", component.Path)
 	}
 	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// parseStateSnapshot reads the lineage, serial, and resource count of a terraform state file.
+func parseStateSnapshot(data []byte) (*StateSnapshot, error) {
+	var state rawState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return &StateSnapshot{Lineage: state.Lineage, Serial: state.Serial, Resources: len(state.Resources)}, nil
 }

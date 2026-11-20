@@ -185,6 +185,9 @@ func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return false, err
 	}
+	if err := i.checkBackendMoveReachable(blueprint); err != nil {
+		return false, err
+	}
 	plan := i.runPlan
 	i.runPlan = nil
 	applyBlueprint := blueprint
@@ -206,7 +209,7 @@ func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
 // Returns an error if terraform is disabled, the stack cannot be initialized, the component is
-// not found, or any terraform operation fails.
+// not found, its state is still in another backend, or any terraform operation fails.
 func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -219,6 +222,14 @@ func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 	}
 	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return err
+	}
+	to := i.configuredBackendType()
+	from, err := i.pendingMoveSource(componentID, to)
+	if err != nil {
+		return err
+	}
+	if from != "" {
+		return werror.New(fmt.Sprintf("the terraform state of %s is in the %s backend, not the configured %s backend", componentID, from, to), "Run windsor apply to move the state of every component.", nil)
 	}
 	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
 		return werror.Wrap(err, "failed to run terraform apply for %s", componentID)
@@ -387,9 +398,10 @@ func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 	return i.applyWithBackendPivot(ctx, blueprint, backendComponents, onApply...)
 }
 
-// applyDirect runs terraform apply directly against the configured backend, with no backend
-// detection or pivot. Used by Up when no backend applies, and by applyWithBackendPivot's Stage
-// 1/3 sub-applies, which must not re-derive a backend from an already-sliced blueprint.
+// applyDirect moves pending backend state with moveBackendState, then runs terraform apply against
+// the configured backend, with no backend detection or pivot. Used by Up when no backend applies,
+// and by applyWithBackendPivot's Stage 1/3 sub-applies, which must not re-derive a backend from an
+// already-sliced blueprint.
 func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if err := i.ensureTerraformStack(); err != nil {
 		return false, err
@@ -397,7 +409,7 @@ func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alp
 	if i.TerraformStack == nil {
 		return false, nil
 	}
-	if err := i.recoverHalfMigratedComponents(ctx, blueprint); err != nil {
+	if err := i.moveBackendState(ctx, blueprint); err != nil {
 		return false, err
 	}
 	hooks := append([]func(ctx context.Context, id string) (bool, error){}, i.onTerraformApply...)
@@ -410,63 +422,6 @@ func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alp
 		return false, werror.Wrap(err, "failed to run terraform up")
 	}
 	return halted, nil
-}
-
-// recoverHalfMigratedComponents migrates leftover local state to the configured remote backend.
-// It targets each component with local state and no remote state, such as after an interrupted bootstrap.
-// It does nothing on a local backend. A disabled component still counts as declared for checkOrphanedLocalState.
-// A failed probe of the remote state returns an error with a remediation hint, because the migration
-// uses -force-copy and can overwrite valid remote state with a stale local file.
-func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	backendType := i.configHandler.GetTerraformBackendType()
-	if backendType == "" || backendType == "local" {
-		return nil
-	}
-
-	for _, c := range blueprint.TerraformComponents {
-		if c.Enabled != nil && !c.Enabled.IsEnabled() {
-			continue
-		}
-		componentID := c.GetID()
-
-		hasLocal, err := i.HasLocalStateWithResources(componentID)
-		if err != nil {
-			return werror.Wrap(err, "error inspecting local state for %s during recovery sweep", componentID)
-		}
-		if !hasLocal {
-			continue
-		}
-
-		hasRemote, err := i.HasRemoteState(blueprint, componentID)
-		if err != nil {
-			return werror.New(fmt.Sprintf("recovery sweep aborted: could not probe configured backend for %q: %v", componentID, err), "Check the credentials, the network connection, and the backend storage, then run the command again. Windsor stops because a state migration can overwrite valid remote state.", err)
-		}
-		if hasRemote {
-			continue
-		}
-
-		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
-		if err := presenter.Track(ctx, "terraform:"+componentID, message, func(ctx context.Context) error {
-			if err := i.withBackendOverride(ctx, "local-recovery-init", func() error {
-				return i.InitComponent(blueprint, componentID)
-			}); err != nil {
-				return werror.Wrap(err, "error resetting backend pointer")
-			}
-
-			if err := i.MigrateComponentState(blueprint, componentID); err != nil {
-				return werror.Wrap(err, "error migrating local state")
-			}
-
-			if err := i.RemoveLocalState(componentID); err != nil {
-				presenter.Warn(ctx, fmt.Sprintf("failed to remove local state file for %q after recovery migration: %v", componentID, err))
-			}
-			return nil
-		}); err != nil {
-			return werror.Wrap(err, "recovery sweep failed for %s", componentID)
-		}
-	}
-
-	return nil
 }
 
 // checkOrphanedLocalState warns in ctx about local terraform state under a component ID that the

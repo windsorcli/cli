@@ -1,6 +1,7 @@
 // The plan methods of the Provisioner preview terraform and kustomize changes.
 // It provides the Plan methods for text, JSON, and summary output, for one component or for all.
 // It provides the destroy plan summaries, and the PlanSummary and DestroyPlanSummary types.
+// A component with a pending backend move plans against the backend that holds its state.
 
 package provisioner
 
@@ -58,7 +59,9 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	if err := i.TerraformStack.Plan(blueprint, componentID); err != nil {
+	if err := i.planComponentInStateBackend(componentID, func() error {
+		return i.TerraformStack.Plan(blueprint, componentID)
+	}); err != nil {
 		return werror.Wrap(err, "failed to run terraform plan for %s", componentID)
 	}
 	return nil
@@ -77,7 +80,7 @@ func (i *Provisioner) PlanTerraformAll(blueprint *blueprintv1alpha1.Blueprint) e
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanAll(blueprint)
+	return i.planInStateBackend(blueprint, i.TerraformStack.PlanAll)
 }
 
 // PlanTerraformAllJSON runs terraform plan -json for every enabled component, streaming
@@ -93,7 +96,7 @@ func (i *Provisioner) PlanTerraformAllJSON(blueprint *blueprintv1alpha1.Blueprin
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanAllJSON(blueprint)
+	return i.planInStateBackend(blueprint, i.TerraformStack.PlanAllJSON)
 }
 
 // PlanTerraformJSON runs terraform plan -json for a single component, streaming
@@ -109,7 +112,9 @@ func (i *Provisioner) PlanTerraformJSON(blueprint *blueprintv1alpha1.Blueprint, 
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanJSON(blueprint, componentID)
+	return i.planComponentInStateBackend(componentID, func() error {
+		return i.TerraformStack.PlanJSON(blueprint, componentID)
+	})
 }
 
 // PlanTerraformResourceChangesJSON runs terraform plan and show -json for a single component,
@@ -125,7 +130,9 @@ func (i *Provisioner) PlanTerraformResourceChangesJSON(blueprint *blueprintv1alp
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanResourceChangesJSON(blueprint, componentID)
+	return i.planComponentInStateBackend(componentID, func() error {
+		return i.TerraformStack.PlanResourceChangesJSON(blueprint, componentID)
+	})
 }
 
 // PlanTerraformAllResourceChangesJSON runs terraform plan and show -json for every enabled
@@ -141,7 +148,7 @@ func (i *Provisioner) PlanTerraformAllResourceChangesJSON(blueprint *blueprintv1
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanAllResourceChangesJSON(blueprint)
+	return i.planInStateBackend(blueprint, i.TerraformStack.PlanAllResourceChangesJSON)
 }
 
 // PlanKustomizeJSON runs kustomize build for the named kustomization (or all when componentID
@@ -169,7 +176,12 @@ func (i *Provisioner) PlanTerraformComponentSummary(blueprint *blueprintv1alpha1
 	if i.TerraformStack == nil {
 		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
 	}
-	return i.TerraformStack.PlanComponentSummary(blueprint, componentID), nil
+	var result terraforminfra.TerraformComponentPlan
+	err := i.planComponentInStateBackend(componentID, func() error {
+		result = i.TerraformStack.PlanComponentSummary(blueprint, componentID)
+		return nil
+	})
+	return result, err
 }
 
 // PlanKustomizeComponentSummary plans a single Flux kustomization and returns its
@@ -228,7 +240,12 @@ func (i *Provisioner) PlanTerraformSummary(blueprint *blueprintv1alpha1.Blueprin
 		return nil, err
 	}
 	if i.TerraformStack != nil {
-		summary.Terraform = i.TerraformStack.PlanSummary(blueprint)
+		if err := i.planInStateBackend(blueprint, func(bp *blueprintv1alpha1.Blueprint) error {
+			summary.Terraform = append(summary.Terraform, i.TerraformStack.PlanSummary(bp)...)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	return summary, nil

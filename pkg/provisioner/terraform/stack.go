@@ -112,6 +112,9 @@ type Stack interface {
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
 	ListLocalStateComponentIDs() ([]string, error)
+	LocalStateSnapshot(componentID string) (*StateSnapshot, error)
+	StateSnapshot(blueprint *blueprintv1alpha1.Blueprint, componentID string) (*StateSnapshot, error)
+	BackendPointerType(componentID string) (string, error)
 	PostApply(fns ...func(ctx context.Context, id string) error)
 	DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error

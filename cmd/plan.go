@@ -74,6 +74,7 @@ windsor plan terraform cluster`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
+				describeBackendMove(cmd, proj, blueprint)
 				var summary *provisioner.PlanSummary
 				if err := presenter.Track(cmd.Context(), "plan", "Generating plan", func(context.Context) error {
 					var planErr error
@@ -108,7 +109,10 @@ windsor plan terraform cluster`,
 
 		runPlan := func(fn func() error) error {
 			if inTerraform {
-				return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, fn)
+				return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
+					describeBackendMove(cmd, proj, blueprint)
+					return fn()
+				})
 			}
 			return fn()
 		}
@@ -208,6 +212,7 @@ windsor plan terraform --output=json-plan`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
+			describeBackendMove(cmd, proj, blueprint)
 			if planOutput != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "This output can include sensitive values in plaintext. Handle it as sensitive data.")
 				if len(args) == 0 {
@@ -364,6 +369,21 @@ func describePlanMode(cmd *cobra.Command, proj *project.Project, blueprint *blue
 	case !gate.VersionMatch:
 		fmt.Fprintln(cmd.ErrOrStderr(), "The blueprint targets a different version than what is applied. The plan below shows the content delta; run `windsor upgrade` to transition versions.")
 	}
+}
+
+// describeBackendMove prints one line to stderr when the terraform state of some components is still
+// in another backend than the configured one. The plan reads that state, and apply moves it. It is
+// best-effort: an error prints nothing.
+func describeBackendMove(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) {
+	move, err := proj.Provisioner.PendingBackendMove(blueprint)
+	if err != nil || move == nil {
+		return
+	}
+	noun := "components"
+	if len(move.Components) == 1 {
+		noun = "component"
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "The terraform backend type changed from %s to %s. windsor apply moves the state of %d %s.\n", move.From, move.To, len(move.Components), noun)
 }
 
 // describePendingPrunes prints to stderr the kustomizations a `windsor upgrade` would prune — those

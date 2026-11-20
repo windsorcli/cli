@@ -651,6 +651,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, fmt.Sprintf("remove-local:%s", componentID))
 			return fmt.Errorf("permission denied")
 		}
+		snapshot := &terraforminfra.StateSnapshot{Lineage: "l", Serial: 1, Resources: 1}
+		mockStack.LocalStateSnapshotFunc = func(string) (*terraforminfra.StateSnapshot, error) { return snapshot, nil }
+		mockStack.StateSnapshotFunc = func(*blueprintv1alpha1.Blueprint, string) (*terraforminfra.StateSnapshot, error) {
+			return snapshot, nil
+		}
 
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		// When Bootstrap runs

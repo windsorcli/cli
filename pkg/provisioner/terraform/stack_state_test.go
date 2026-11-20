@@ -493,3 +493,183 @@ func TestStack_ListLocalStateComponentIDs(t *testing.T) {
 		}
 	})
 }
+
+func TestStack_LocalStateSnapshot(t *testing.T) {
+	setup := func(t *testing.T, readFile func(string) ([]byte, error)) *TerraformStack {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetStatePathFunc: func(id string) (string, error) { return "/scratch/.tfstate/" + id + "/terraform.tfstate", nil },
+		}
+		mocks.Shims.ReadFile = readFile
+		return stack
+	}
+
+	t.Run("ReadsLineageSerialAndResourceCount", func(t *testing.T) {
+		// Given a local state file with two resources
+		stack := setup(t, func(string) ([]byte, error) {
+			return []byte(`{"lineage":"abc","serial":7,"resources":[{},{}]}`), nil
+		})
+
+		// When LocalStateSnapshot is called
+		snapshot, err := stack.LocalStateSnapshot("cni")
+
+		// Then it returns the identity and size of the state
+		if err != nil || snapshot == nil || *snapshot != (StateSnapshot{Lineage: "abc", Serial: 7, Resources: 2}) {
+			t.Errorf("Expected lineage abc, serial 7, 2 resources, got %+v, %v", snapshot, err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenTheFileDoesNotExist", func(t *testing.T) {
+		// Given no local state file
+		stack := setup(t, func(string) ([]byte, error) { return nil, os.ErrNotExist })
+
+		// When LocalStateSnapshot is called
+		snapshot, err := stack.LocalStateSnapshot("cni")
+
+		// Then it returns nil and no error
+		if err != nil || snapshot != nil {
+			t.Errorf("Expected nil and no error, got %+v, %v", snapshot, err)
+		}
+	})
+
+	t.Run("ReturnsAnErrorForAFileThatDoesNotParse", func(t *testing.T) {
+		// Given a local state file that is not JSON
+		stack := setup(t, func(string) ([]byte, error) { return []byte("not json"), nil })
+
+		// When LocalStateSnapshot is called
+		_, err := stack.LocalStateSnapshot("cni")
+
+		// Then it returns a parse error
+		if err == nil || !strings.Contains(err.Error(), "error parsing local state file") {
+			t.Errorf("Expected a parse error, got %v", err)
+		}
+	})
+}
+
+func TestStack_StateSnapshot(t *testing.T) {
+	setup := func(t *testing.T, pull func() (string, error)) (*TerraformStack, *[]string) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		var commands []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) > 1 {
+				commands = append(commands, args[1])
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecCaptureWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			commands = append(commands, strings.Join(args[1:], " "))
+			return pull()
+		}
+		return stack, &commands
+	}
+
+	t.Run("InitsThenPullsTheState", func(t *testing.T) {
+		// Given a backend that holds state with one resource
+		stack, commands := setup(t, func() (string, error) {
+			return `{"lineage":"abc","serial":3,"resources":[{}]}`, nil
+		})
+
+		// When StateSnapshot is called
+		snapshot, err := stack.StateSnapshot(createTestBlueprint(), "remote/path")
+
+		// Then it runs init, then state pull, and returns the snapshot
+		if err != nil || snapshot == nil || *snapshot != (StateSnapshot{Lineage: "abc", Serial: 3, Resources: 1}) {
+			t.Fatalf("Expected lineage abc, serial 3, 1 resource, got %+v, %v", snapshot, err)
+		}
+		if !slices.Equal(*commands, []string{"init", "state pull"}) {
+			t.Errorf("Expected init then state pull, got %v", *commands)
+		}
+	})
+
+	t.Run("ReturnsNilWhenTheBackendHoldsNoState", func(t *testing.T) {
+		// Given a backend with no state for the component
+		stack, _ := setup(t, func() (string, error) { return "\n", nil })
+
+		// When StateSnapshot is called
+		snapshot, err := stack.StateSnapshot(createTestBlueprint(), "remote/path")
+
+		// Then it returns nil and no error
+		if err != nil || snapshot != nil {
+			t.Errorf("Expected nil and no error, got %+v, %v", snapshot, err)
+		}
+	})
+
+	t.Run("ReturnsAnErrorWhenThePullFails", func(t *testing.T) {
+		// Given a state pull that fails
+		stack, _ := setup(t, func() (string, error) { return "", fmt.Errorf("connection refused") })
+
+		// When StateSnapshot is called
+		_, err := stack.StateSnapshot(createTestBlueprint(), "remote/path")
+
+		// Then the error names the component
+		if err == nil || !strings.Contains(err.Error(), "error reading terraform state for remote/path") {
+			t.Errorf("Expected a read error, got %v", err)
+		}
+	})
+}
+
+func TestStack_BackendPointerType(t *testing.T) {
+	setup := func(t *testing.T, readFile func(string) ([]byte, error)) *TerraformStack {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetTFDataDirFunc: func(id string) (string, error) { return "/scratch/.terraform/" + id, nil },
+		}
+		mocks.Shims.ReadFile = readFile
+		return stack
+	}
+
+	t.Run("ReturnsTheTypeThePointerRecords", func(t *testing.T) {
+		// Given a pointer that records the local backend
+		var read string
+		stack := setup(t, func(path string) ([]byte, error) {
+			read = path
+			return []byte(`{"backend":{"type":"local","config":{"path":"/x"}}}`), nil
+		})
+
+		// When BackendPointerType is called
+		backendType, err := stack.BackendPointerType("cni")
+
+		// Then it reads the pointer in TF_DATA_DIR and returns local
+		if err != nil || backendType != "local" {
+			t.Errorf("Expected local, got %q, %v", backendType, err)
+		}
+		if read != filepath.FromSlash("/scratch/.terraform/cni/terraform.tfstate") {
+			t.Errorf("Expected the pointer path in TF_DATA_DIR, got %q", read)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenThereIsNoPointer", func(t *testing.T) {
+		// Given no pointer file
+		stack := setup(t, func(string) ([]byte, error) { return nil, os.ErrNotExist })
+
+		// When BackendPointerType is called
+		backendType, err := stack.BackendPointerType("cni")
+
+		// Then it returns an empty type and no error
+		if err != nil || backendType != "" {
+			t.Errorf("Expected an empty type, got %q, %v", backendType, err)
+		}
+	})
+
+	t.Run("ReturnsEmptyForAPointerThatDoesNotParse", func(t *testing.T) {
+		// Given a pointer that is not JSON
+		stack := setup(t, func(string) ([]byte, error) { return []byte("{"), nil })
+
+		// When BackendPointerType is called
+		backendType, err := stack.BackendPointerType("cni")
+
+		// Then it returns an empty type and no error
+		if err != nil || backendType != "" {
+			t.Errorf("Expected an empty type, got %q, %v", backendType, err)
+		}
+	})
+}

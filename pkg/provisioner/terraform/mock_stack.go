@@ -25,6 +25,9 @@ type MockStack struct {
 	InitComponentFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalStateFunc            func(componentID string) error
 	ListLocalStateComponentIDsFunc  func() ([]string, error)
+	LocalStateSnapshotFunc          func(componentID string) (*StateSnapshot, error)
+	StateSnapshotFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (*StateSnapshot, error)
+	BackendPointerTypeFunc          func(componentID string) (string, error)
 	PostApplyFunc                   func(fns ...func(ctx context.Context, id string) error)
 	DestroyAllFunc                  func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	PlanFunc                        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -116,6 +119,30 @@ func (m *MockStack) ListLocalStateComponentIDs() ([]string, error) {
 		return m.ListLocalStateComponentIDsFunc()
 	}
 	return nil, nil
+}
+
+// LocalStateSnapshot is a mock implementation of the LocalStateSnapshot method.
+func (m *MockStack) LocalStateSnapshot(componentID string) (*StateSnapshot, error) {
+	if m.LocalStateSnapshotFunc != nil {
+		return m.LocalStateSnapshotFunc(componentID)
+	}
+	return nil, nil
+}
+
+// StateSnapshot is a mock implementation of the StateSnapshot method.
+func (m *MockStack) StateSnapshot(blueprint *blueprintv1alpha1.Blueprint, componentID string) (*StateSnapshot, error) {
+	if m.StateSnapshotFunc != nil {
+		return m.StateSnapshotFunc(blueprint, componentID)
+	}
+	return nil, nil
+}
+
+// BackendPointerType is a mock implementation of the BackendPointerType method.
+func (m *MockStack) BackendPointerType(componentID string) (string, error) {
+	if m.BackendPointerTypeFunc != nil {
+		return m.BackendPointerTypeFunc(componentID)
+	}
+	return "", nil
 }
 
 // PostApply is a mock implementation of the PostApply method.
