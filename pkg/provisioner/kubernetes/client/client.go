@@ -239,10 +239,10 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	return nil
 }
 
-// GetNodeReadyStatus returns a map of node names to their Ready condition status.
-// It checks the Ready condition for each specified node using the dynamic client.
-// If nodeNames is empty, all nodes are checked. Nodes not found are omitted from the result.
-// Returns a map of node names to Ready status (true if Ready, false if NotReady), or an error if listing fails.
+// GetNodeReadyStatus returns the Ready condition status of each node in nodeNames.
+// Each value in nodeNames matches a node by its name, its InternalIP, or its ExternalIP.
+// The result uses the values from nodeNames as keys. Values that match no node are omitted.
+// If nodeNames is empty, the result has all nodes, with node names as keys.
 func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 	cli, _, err := c.ensureClient()
 	if err != nil {
@@ -260,27 +260,27 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 		return nil, werror.Wrap(err, "failed to list nodes")
 	}
 
-	if len(nodeNames) > 0 {
-		var filteredNodes []unstructured.Unstructured
-		nodeNameSet := make(map[string]bool)
-		for _, name := range nodeNames {
-			nodeNameSet[name] = true
-		}
-
+	readyStatus := make(map[string]bool)
+	if len(nodeNames) == 0 {
 		for _, node := range nodes.Items {
-			if nodeNameSet[node.GetName()] {
-				filteredNodes = append(filteredNodes, node)
-			}
+			readyStatus[node.GetName()] = c.isNodeReady(&node)
 		}
-
-		nodes.Items = filteredNodes
+		return readyStatus, nil
 	}
 
-	readyStatus := make(map[string]bool)
 	for _, node := range nodes.Items {
-		nodeName := node.GetName()
-		ready := c.isNodeReady(&node)
-		readyStatus[nodeName] = ready
+		identifiers := append([]string{node.GetName()}, c.nodeAddresses(&node)...)
+		for _, requested := range nodeNames {
+			if _, matched := readyStatus[requested]; matched {
+				continue
+			}
+			for _, identifier := range identifiers {
+				if identifier == requested {
+					readyStatus[requested] = c.isNodeReady(&node)
+					break
+				}
+			}
+		}
 	}
 
 	return readyStatus, nil
@@ -458,6 +458,30 @@ func (c *DynamicKubernetesClient) isNodeReady(node *unstructured.Unstructured) b
 	}
 
 	return false
+}
+
+// nodeAddresses returns the InternalIP and ExternalIP addresses of a node.
+func (c *DynamicKubernetesClient) nodeAddresses(node *unstructured.Unstructured) []string {
+	addresses, found, err := unstructured.NestedSlice(node.Object, "status", "addresses")
+	if err != nil || !found {
+		return nil
+	}
+
+	var result []string
+	for _, address := range addresses {
+		addressMap, ok := address.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		addressType, _, _ := unstructured.NestedString(addressMap, "type")
+		if addressType != "InternalIP" && addressType != "ExternalIP" {
+			continue
+		}
+		if value, found, _ := unstructured.NestedString(addressMap, "address"); found && value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // =============================================================================

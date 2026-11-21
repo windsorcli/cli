@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,125 @@ func newCountingServer(t *testing.T, hits *int32) *httptest.Server {
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+// newNodeListServer returns a test server that answers every request with body as a NodeList.
+func newNodeListServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+func TestDynamicKubernetesClient_GetNodeReadyStatus(t *testing.T) {
+	nodeList := `{"apiVersion":"v1","kind":"NodeList","items":[
+{"apiVersion":"v1","kind":"Node","metadata":{"name":"controlplane-1"},"status":{
+"addresses":[{"type":"InternalIP","address":"192.168.3.21"},{"type":"Hostname","address":"controlplane-1"}],
+"conditions":[{"type":"Ready","status":"True"}]}},
+{"apiVersion":"v1","kind":"Node","metadata":{"name":"controlplane-2"},"status":{
+"addresses":[{"type":"InternalIP","address":"10.0.0.22"},{"type":"ExternalIP","address":"192.168.3.22"}],
+"conditions":[{"type":"Ready","status":"False"}]}}
+]}`
+
+	setup := func(t *testing.T) *DynamicKubernetesClient {
+		t.Helper()
+		server := newNodeListServer(t, nodeList)
+		path := filepath.Join(t.TempDir(), "kubeconfig")
+		writeTestKubeconfig(t, path, server.URL, time.Now())
+		t.Setenv("KUBECONFIG", path)
+		return NewDynamicKubernetesClient(nil)
+	}
+
+	t.Run("MatchesNodesByInternalIP", func(t *testing.T) {
+		// Given a cluster whose node names differ from their addresses
+		c := setup(t)
+
+		// When the status is requested by InternalIP
+		status, err := c.GetNodeReadyStatus(context.Background(), []string{"192.168.3.21"})
+
+		// Then the node is found under the requested address
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if ready, ok := status["192.168.3.21"]; !ok || !ready {
+			t.Errorf("expected 192.168.3.21 to be Ready, got %v (found=%v)", ready, ok)
+		}
+		if len(status) != 1 {
+			t.Errorf("expected 1 entry, got %v", status)
+		}
+	})
+
+	t.Run("MatchesNodesByExternalIP", func(t *testing.T) {
+		// Given a node with an ExternalIP
+		c := setup(t)
+
+		// When the status is requested by ExternalIP
+		status, err := c.GetNodeReadyStatus(context.Background(), []string{"192.168.3.22"})
+
+		// Then the node is found and reports its Ready condition
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if ready, ok := status["192.168.3.22"]; !ok || ready {
+			t.Errorf("expected 192.168.3.22 to be found and NotReady, got %v (found=%v)", ready, ok)
+		}
+	})
+
+	t.Run("MatchesNodesByName", func(t *testing.T) {
+		// Given a cluster with named nodes
+		c := setup(t)
+
+		// When the status is requested by node name
+		status, err := c.GetNodeReadyStatus(context.Background(), []string{"controlplane-1"})
+
+		// Then the node is found under its name
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if ready, ok := status["controlplane-1"]; !ok || !ready {
+			t.Errorf("expected controlplane-1 to be Ready, got %v (found=%v)", ready, ok)
+		}
+	})
+
+	t.Run("OmitsValuesThatMatchNoNode", func(t *testing.T) {
+		// Given a cluster with no node at the requested address
+		c := setup(t)
+
+		// When the status is requested by an unknown address
+		status, err := c.GetNodeReadyStatus(context.Background(), []string{"192.168.3.99"})
+
+		// Then the result omits the value
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if len(status) != 0 {
+			t.Errorf("expected no entries, got %v", status)
+		}
+	})
+
+	t.Run("ReturnsAllNodesByNameWhenNoneAreRequested", func(t *testing.T) {
+		// Given a cluster with two nodes
+		c := setup(t)
+
+		// When the status is requested with no values
+		status, err := c.GetNodeReadyStatus(context.Background(), nil)
+
+		// Then the result has every node under its name
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if len(status) != 2 || !status["controlplane-1"] || status["controlplane-2"] {
+			t.Errorf("expected controlplane-1 Ready and controlplane-2 NotReady, got %v", status)
+		}
+	})
 }
 
 // =============================================================================
