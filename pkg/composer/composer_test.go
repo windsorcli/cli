@@ -1143,11 +1143,11 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		}
 	})
 
-	t.Run("WritesContextGitignoresForEachContext", func(t *testing.T) {
-		// Given a composer with two contexts and a _template
+	t.Run("WritesGitignoreOnlyIntoCurrentContext", func(t *testing.T) {
+		// Given the current context, another context, a non-context folder, and a _template
 		mocks := setupComposerMocks(t)
 		root := mocks.Runtime.ProjectRoot
-		for _, name := range []string{"local", "prod", "_template"} {
+		for _, name := range []string{"test-context", "prod", "loft", "_template"} {
 			if err := os.MkdirAll(filepath.Join(root, "contexts", name), 0750); err != nil {
 				t.Fatalf("Failed to create context dir %s: %v", name, err)
 			}
@@ -1162,31 +1162,29 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And each non-template context should have a .gitignore with cred dirs
+		// And the current context should have a .gitignore with cred dirs
 		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\nsecrets.yaml\nsecrets.yml\n"
-		for _, name := range []string{"local", "prod"} {
-			path := filepath.Join(root, "contexts", name, ".gitignore")
-			content, readErr := os.ReadFile(path)
-			if readErr != nil {
-				t.Fatalf("Expected contexts/%s/.gitignore, got error: %v", name, readErr)
-			}
-			if string(content) != expected {
-				t.Errorf("contexts/%s/.gitignore content mismatch: got %q", name, string(content))
-			}
+		content, readErr := os.ReadFile(filepath.Join(mocks.Runtime.ConfigRoot, ".gitignore"))
+		if readErr != nil {
+			t.Fatalf("Expected current context .gitignore, got error: %v", readErr)
+		}
+		if string(content) != expected {
+			t.Errorf("Current context .gitignore content mismatch: got %q", string(content))
 		}
 
-		// And _template should have no .gitignore created
-		templatePath := filepath.Join(root, "contexts", "_template", ".gitignore")
-		if _, err := os.Stat(templatePath); !os.IsNotExist(err) {
-			t.Errorf("Expected contexts/_template/.gitignore to not exist, got stat err: %v", err)
+		// And the other folders under contexts/ should have no .gitignore
+		for _, name := range []string{"prod", "loft", "_template"} {
+			path := filepath.Join(root, "contexts", name, ".gitignore")
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("Expected contexts/%s/.gitignore to not exist, got stat err: %v", name, err)
+			}
 		}
 	})
 
 	t.Run("BackfillsMissingLineIntoExistingContextGitignore", func(t *testing.T) {
 		// Given a context whose .gitignore predates the ".env" line addition
 		mocks := setupComposerMocks(t)
-		root := mocks.Runtime.ProjectRoot
-		contextDir := filepath.Join(root, "contexts", "local")
+		contextDir := mocks.Runtime.ConfigRoot
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
@@ -1218,8 +1216,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 	t.Run("PreservesUserLinesWhenBackfillingContextGitignore", func(t *testing.T) {
 		// Given a context .gitignore with a user-added line and no ".env" line
 		mocks := setupComposerMocks(t)
-		root := mocks.Runtime.ProjectRoot
-		contextDir := filepath.Join(root, "contexts", "local")
+		contextDir := mocks.Runtime.ConfigRoot
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
@@ -1248,8 +1245,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 	t.Run("BackfillsMissingVsphereLineIntoExistingContextGitignore", func(t *testing.T) {
 		// Given a context whose .gitignore predates the ".vsphere/" line addition
 		mocks := setupComposerMocks(t)
-		root := mocks.Runtime.ProjectRoot
-		contextDir := filepath.Join(root, "contexts", "local")
+		contextDir := mocks.Runtime.ConfigRoot
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
@@ -1278,8 +1274,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 	t.Run("IsIdempotentWhenEnvLineAlreadyPresent", func(t *testing.T) {
 		// Given a context .gitignore that already has every current line
 		mocks := setupComposerMocks(t)
-		root := mocks.Runtime.ProjectRoot
-		contextDir := filepath.Join(root, "contexts", "local")
+		contextDir := mocks.Runtime.ConfigRoot
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}

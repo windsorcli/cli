@@ -745,6 +745,36 @@ func TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone(t *testing.T) {
 	}
 }
 
+// TestInit_WritesGitignoreOnlyIntoCurrentContext verifies that `windsor init`
+// writes the context .gitignore only into the context it acts on. Other folders
+// under contexts/, such as a folder of Flux manifests, stay unchanged.
+func TestInit_WritesGitignoreOnlyIntoCurrentContext(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	manifestDir := filepath.Join(dir, "contexts", "loft", "manager", "flux-system")
+	if err := os.MkdirAll(manifestDir, 0750); err != nil {
+		t.Fatalf("expected no error creating %s, got %v", manifestDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "kustomization.yaml"), []byte("resources: []\n"), 0644); err != nil {
+		t.Fatalf("expected no error seeding manifest, got %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("init home: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "contexts", "home", ".gitignore")); err != nil {
+		t.Errorf("expected contexts/home/.gitignore to exist, got %v", err)
+	}
+	loftIgnore := filepath.Join(dir, "contexts", "loft", ".gitignore")
+	if _, err := os.Stat(loftIgnore); !os.IsNotExist(err) {
+		t.Errorf("expected contexts/loft/.gitignore to not exist, got stat err: %v", err)
+	}
+}
+
 // TestInit_AzureRegionPersistsAcrossInit verifies that `--set azure.region=...`
 // flows through init and lands in values.yaml as azure.region. The runtime
 // env printer reads this key to emit TF_VAR_region for terraform's
