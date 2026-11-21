@@ -567,4 +567,68 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 			t.Errorf("Expected node health error, got: %v", err)
 		}
 	})
+
+	t.Run("LoadsContextEnvironmentBeforeCheckingHealth", func(t *testing.T) {
+		// Given a project with a named context kubeconfig and talosconfig
+		setup(t)
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get working directory: %v", err)
+		}
+		homeCtxDir := filepath.Join(cwd, "contexts", "home")
+		kubeDir := filepath.Join(homeCtxDir, ".kube")
+		talosDir := filepath.Join(homeCtxDir, ".talos")
+		if err := os.MkdirAll(kubeDir, 0755); err != nil {
+			t.Fatalf("Failed to create .kube dir: %v", err)
+		}
+		if err := os.MkdirAll(talosDir, 0755); err != nil {
+			t.Fatalf("Failed to create .talos dir: %v", err)
+		}
+		kubeConfigPath := filepath.Join(kubeDir, "config")
+		talosConfigPath := filepath.Join(talosDir, "config")
+		if err := os.WriteFile(kubeConfigPath, []byte("apiVersion: v1\nkind: Config\n"), 0600); err != nil {
+			t.Fatalf("Failed to write kubeconfig: %v", err)
+		}
+		if err := os.WriteFile(talosConfigPath, []byte("context: home\n"), 0600); err != nil {
+			t.Fatalf("Failed to write talosconfig: %v", err)
+		}
+
+		t.Setenv("KUBECONFIG", "")
+		t.Setenv("TALOSCONFIG", "")
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.GetContextFunc = func() string { return "home" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) { return homeCtxDir, nil }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler, TmpDir: cwd})
+		var recordedEnv = make(map[string]string)
+		mocks.Runtime.Shims.Setenv = func(key, value string) error {
+			recordedEnv[key] = value
+			return os.Setenv(key, value)
+		}
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--wait-for-reboot"})
+
+		// When executing check node-health
+		_ = cliCmd.Execute()
+
+		// Then KUBECONFIG and TALOSCONFIG for the home context are loaded into the environment
+		if recordedEnv["KUBECONFIG"] != kubeConfigPath {
+			t.Errorf("Expected KUBECONFIG=%q, got %q", kubeConfigPath, recordedEnv["KUBECONFIG"])
+		}
+		if recordedEnv["TALOSCONFIG"] != talosConfigPath {
+			t.Errorf("Expected TALOSCONFIG=%q, got %q", talosConfigPath, recordedEnv["TALOSCONFIG"])
+		}
+	})
 }

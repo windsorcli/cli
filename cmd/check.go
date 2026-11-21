@@ -120,6 +120,18 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 			return werror.New("nothing to check", initProjectHint, nil)
 		}
 
+		if err := rt.InitializeComponents(); err != nil {
+			return werror.Wrap(err, "failed to initialize components")
+		}
+
+		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
+			return werror.Wrap(err, "failed to load blueprint")
+		}
+
+		if err := rt.LoadEnvironment(true); err != nil {
+			return werror.Wrap(err, "failed to load environment")
+		}
+
 		comp := composer.NewComposer(rt)
 		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
