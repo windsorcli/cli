@@ -41,23 +41,9 @@ windsor check`,
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var rtOpts []*runtime.Runtime
-		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
-			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
-		}
-
-		rt := runtime.NewRuntime(rtOpts...)
-
-		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return werror.New("not in a trusted directory", trustDirectoryHint, err)
-		}
-
-		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+		rt, err := checkRuntime(cmd)
+		if err != nil {
 			return err
-		}
-
-		if !rt.ConfigHandler.IsLoaded() {
-			return werror.New("nothing to check", initProjectHint, nil)
 		}
 
 		if err := rt.CheckTools(); err != nil {
@@ -101,23 +87,9 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 			nodeHealthTimeout = constants.DefaultNodeHealthCheckTimeout
 		}
 
-		var rtOpts []*runtime.Runtime
-		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
-			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
-		}
-
-		rt := runtime.NewRuntime(rtOpts...)
-
-		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return werror.New("not in a trusted directory", trustDirectoryHint, err)
-		}
-
-		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+		rt, err := checkRuntime(cmd)
+		if err != nil {
 			return err
-		}
-
-		if !rt.ConfigHandler.IsLoaded() {
-			return werror.New("nothing to check", initProjectHint, nil)
 		}
 
 		comp := composer.NewComposer(rt)
@@ -151,12 +123,42 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 	},
 }
 
+// checkRuntime builds the runtime for a check command and loads the environment of the selected context.
+// The cluster clients and cloud CLIs read KUBECONFIG, TALOSCONFIG and credentials from the process environment.
+// It does not decrypt secrets.
+func checkRuntime(cmd *cobra.Command) (*runtime.Runtime, error) {
+	var rtOpts []*runtime.Runtime
+	if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+		rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+	}
+
+	rt := runtime.NewRuntime(rtOpts...)
+
+	if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+		return nil, werror.New("not in a trusted directory", trustDirectoryHint, err)
+	}
+
+	if err := rt.ConfigHandler.LoadConfig(); err != nil {
+		return nil, err
+	}
+
+	if !rt.ConfigHandler.IsLoaded() {
+		return nil, werror.New("nothing to check", initProjectHint, nil)
+	}
+
+	if err := rt.LoadEnvironment(false); err != nil {
+		return nil, werror.Wrap(err, "failed to load environment")
+	}
+
+	return rt, nil
+}
+
 // init registers the check command, its subcommands and its flags with the root command.
 func init() {
 	rootCmd.AddCommand(checkCmd)
 	checkCmd.AddCommand(checkNodeHealthCmd)
 
-	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready. Default 5m.")
+	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for each check to pass. Default 5m.")
 	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Talos node addresses to check. Windsor reaches them through the TALOSCONFIG endpoints.")
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected Talos version. Reports a mismatch if set.")
 	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Probe the Kubernetes API at this URL, or pass without value to use the configured endpoint.")

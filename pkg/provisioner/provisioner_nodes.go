@@ -109,8 +109,9 @@ func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image st
 
 // CheckNodeHealth checks the health of cluster nodes and of the Kubernetes API endpoint.
 // It checks nodes through the cluster client for Talos and Omni clusters. It also checks the version
-// and the readiness of each node. It returns an error if a health check fails. Options with no
-// health checks, or --ready without --nodes, return an error with a remediation hint.
+// and the readiness of each node. The node check and the Kubernetes check each wait up to options.Timeout.
+// It returns an error if a health check fails. Options with no health checks, or --ready without --nodes,
+// return an error with a remediation hint.
 func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthCheckOptions, outputFunc func(string)) error {
 	hasNodeCheck := len(options.Nodes) > 0
 	hasK8sCheck := options.K8SEndpointProvided
@@ -170,6 +171,12 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 	if hasK8sCheck {
 		if i.KubernetesManager == nil {
 			return fmt.Errorf("no kubernetes manager found")
+		}
+
+		if options.Timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, options.Timeout)
+			defer cancel()
 		}
 
 		k8sEndpointStr := options.K8SEndpoint

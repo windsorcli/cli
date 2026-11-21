@@ -283,6 +283,43 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		}
 	})
 
+	t.Run("KubernetesCheckUsesTimeout", func(t *testing.T) {
+		// Given a kubernetes manager that records the deadline of its context
+		mocks := setupProvisionerMocks(t)
+		var hasDeadline bool
+		var remaining time.Duration
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			var deadline time.Time
+			deadline, hasDeadline = ctx.Deadline()
+			remaining = time.Until(deadline)
+			return nil
+		}
+		opts := &provisioner.Provisioner{
+			KubernetesManager: mocks.KubernetesManager,
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		options := provisioner.NodeHealthCheckOptions{
+			K8SEndpoint:         "true",
+			K8SEndpointProvided: true,
+			Timeout:             2 * time.Second,
+		}
+
+		// When CheckNodeHealth runs with a timeout
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
+
+		// Then the Kubernetes check gets a deadline no later than the timeout
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !hasDeadline {
+			t.Fatal("Expected the Kubernetes check context to have a deadline")
+		}
+		if remaining <= 0 || remaining > 2*time.Second {
+			t.Errorf("Expected the deadline within 2s, got %v", remaining)
+		}
+	})
+
 	t.Run("SuccessWithBothChecks", func(t *testing.T) {
 		// Given a cluster client and a kubernetes manager that both report healthy
 		mocks := setupProvisionerMocks(t)
