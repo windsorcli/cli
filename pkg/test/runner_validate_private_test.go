@@ -1,6 +1,8 @@
 package test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -334,6 +336,56 @@ func TestTestRunner_validateBlueprint(t *testing.T) {
 
 		if len(errors) > 0 {
 			t.Errorf("Expected no errors for valid blueprint, got: %v", errors)
+		}
+	})
+}
+
+func TestTestRunner_validateKustomizePaths(t *testing.T) {
+	setup := func(t *testing.T, dirs ...string) (*TestRunner, string) {
+		t.Helper()
+		root := t.TempDir()
+		for _, d := range dirs {
+			if err := os.MkdirAll(filepath.Join(root, d), 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return &TestRunner{baseProjectRoot: root, basePath: root}, root
+	}
+	bp := func(path string, components ...string) *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "app"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "copia-install", Path: path, Components: components}},
+		}
+	}
+
+	t.Run("PassesWhenPathAndComponentsExist", func(t *testing.T) {
+		r, _ := setup(t, "kustomize/copia/install/chart")
+		if got := r.validateKustomizePaths(bp("copia/install", "chart")); len(got) != 0 {
+			t.Errorf("expected no problems, got %v", got)
+		}
+	})
+
+	t.Run("ReportsMissingPath", func(t *testing.T) {
+		r, _ := setup(t)
+		got := r.validateKustomizePaths(bp("copia/install"))
+		if len(got) != 1 || !strings.Contains(got[0], "kustomize/copia/install") {
+			t.Errorf("expected a missing path problem, got %v", got)
+		}
+	})
+
+	t.Run("ReportsMissingComponent", func(t *testing.T) {
+		r, _ := setup(t, "kustomize/copia/install")
+		got := r.validateKustomizePaths(bp("copia/install", "chart"))
+		if len(got) != 1 || !strings.Contains(got[0], `component "chart"`) {
+			t.Errorf("expected a missing component problem, got %v", got)
+		}
+	})
+
+	t.Run("ReportsMisplacedTemplateKustomizeDirectory", func(t *testing.T) {
+		r, _ := setup(t, "contexts/_template/kustomize/copia/install")
+		got := r.validateKustomizePaths(bp("copia/install"))
+		if len(got) != 2 || !strings.Contains(got[1], "contexts/_template/kustomize") {
+			t.Errorf("expected the path problem and a misplaced directory problem, got %v", got)
 		}
 	})
 }

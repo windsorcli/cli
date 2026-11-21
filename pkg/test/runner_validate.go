@@ -6,10 +6,13 @@ package test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
 // =============================================================================
@@ -30,6 +33,37 @@ func (r *TestRunner) validateBlueprint(bp *blueprintv1alpha1.Blueprint) []string
 	errs = append(errs, r.validateInvalidDependencies(bp)...)
 
 	return errs
+}
+
+// validateKustomizePaths returns one message per kustomization of bp whose path or component directory
+// is missing from the project. It resolves each path as Flux does, so a kustomization that reads the
+// blueprint itself must have kustomize/<path>/ and one directory for each component under the project
+// base. It skips kustomizations that read a remote source and names them on stderr under --verbose.
+// It also reports kustomize directories under contexts/, which no kustomization can reach.
+func (r *TestRunner) validateKustomizePaths(bp *blueprintv1alpha1.Blueprint) []string {
+	basePrefix := ""
+	if rel, err := filepath.Rel(r.baseProjectRoot, r.basePath); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		basePrefix = filepath.ToSlash(rel)
+	}
+	problems, skipped := kubernetes.CheckKustomizePaths(bp, r.baseProjectRoot, basePrefix)
+	if r.baseShell != nil && r.baseShell.IsVerbose() {
+		for _, s := range skipped {
+			if r.reportedSkips == nil {
+				r.reportedSkips = make(map[string]struct{})
+			}
+			if _, done := r.reportedSkips[s]; done {
+				continue
+			}
+			r.reportedSkips[s] = struct{}{}
+			fmt.Fprintf(os.Stderr, "skipped kustomize path check: %s\n", s)
+		}
+	}
+	if len(problems) > 0 {
+		for _, dir := range kubernetes.FindMisplacedKustomizeDirs(r.baseProjectRoot, basePrefix) {
+			problems = append(problems, kubernetes.MisplacedKustomizeMessage(dir, basePrefix))
+		}
+	}
+	return problems
 }
 
 // validateDuplicateTerraformComponents checks for duplicate Terraform components in the blueprint by

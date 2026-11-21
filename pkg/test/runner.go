@@ -66,6 +66,7 @@ type TestRunner struct {
 	DefaultBlueprintURL string
 	RunFunc             func(filter string) ([]TestResult, error)
 	shims               *shims.Shims
+	reportedSkips       map[string]struct{}
 }
 
 type testCaseWithFile struct {
@@ -409,7 +410,7 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 		return result, nil
 	}
 
-	validationErrors := r.validateBlueprint(bp)
+	validationErrors := append(r.validateBlueprint(bp), r.validateKustomizePaths(bp)...)
 	if len(validationErrors) > 0 {
 		result.Passed = false
 		result.Diffs = append(result.Diffs, validationErrors...)
