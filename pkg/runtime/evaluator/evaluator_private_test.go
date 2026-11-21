@@ -27,316 +27,9 @@ func setupEvaluatorTest(t *testing.T) (ExpressionEvaluator, config.ConfigHandler
 	return evaluator, mockConfigHandler, projectRoot, templateRoot
 }
 
-func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, config.ConfigHandler) {
-	t.Helper()
-
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockShims := NewShims()
-	mockShims.ReadFile = func(string) ([]byte, error) { return nil, errors.New("file not found") }
-
-	evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
-	concreteEvaluator := evaluator.(*DefaultExpressionEvaluator)
-	concreteEvaluator.Shims = mockShims
-
-	return evaluator, mockShims, mockConfigHandler
-}
-
 // =============================================================================
 // Test Private Methods
 // =============================================================================
-
-func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
-	t.Run("EvaluatesJsonnetFromFile", func(t *testing.T) {
-		// Given an evaluator and a jsonnet file
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		jsonnetContent := `{
-			result: "success",
-			value: 42
-		}`
-		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
-
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then the jsonnet should be evaluated
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-
-		if resultMap["value"] != float64(42) {
-			t.Errorf("Expected result.value to be 42, got %v", resultMap["value"])
-		}
-	})
-
-	t.Run("EvaluatesJsonnetWithContext", func(t *testing.T) {
-		// Given an evaluator with config handler and a jsonnet file using context
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
-		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
-		mockHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		jsonnetContent := `{
-			result: "success",
-			hasContext: std.extVar("context") != null
-		}`
-		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
-
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then the jsonnet should have access to context
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-
-		if resultMap["hasContext"] != true {
-			t.Errorf("Expected result.hasContext to be true, got %v", resultMap["hasContext"])
-		}
-	})
-
-	t.Run("HandlesJsonnetFileNotFound", func(t *testing.T) {
-		// Given an evaluator
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		// When evaluating jsonnet function with non-existent file
-		_, err := evaluator.Evaluate(`${jsonnet("nonexistent.jsonnet")}`, "", nil, false)
-
-		// Then an error that names the file should be returned
-		if err == nil {
-			t.Fatal("Expected error for non-existent file, got nil")
-		}
-		we := werror.Find(err)
-		if we == nil || !strings.Contains(we.Message, "The jsonnet() helper cannot read the file") || !strings.Contains(we.Message, "nonexistent.jsonnet") {
-			t.Errorf("Expected a read error naming the file, got %v", err)
-		}
-		if we != nil && we.Remediation != filePathRemediation {
-			t.Errorf("Expected the file path remediation, got %q", we.Remediation)
-		}
-	})
-
-	t.Run("HandlesInvalidJsonnet", func(t *testing.T) {
-		// Given an evaluator and an invalid jsonnet file
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`invalid jsonnet syntax {`), 0644)
-
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then an error that names the file and keeps the Jsonnet error should be returned
-		if err == nil {
-			t.Fatal("Expected error for invalid jsonnet, got nil")
-		}
-		we := werror.Find(err)
-		if we == nil || !strings.Contains(we.Message, "cannot evaluate the file "+jsonnetFile) {
-			t.Errorf("Expected an evaluation error naming the file, got %v", err)
-		}
-		if we != nil && (we.Cause == nil || !strings.Contains(we.Message, we.Cause.Error())) {
-			t.Errorf("Expected the message to keep the Jsonnet error, got %q", we.Message)
-		}
-	})
-
-	t.Run("HandlesJsonnetWithTemplateData", func(t *testing.T) {
-		// Given an evaluator with template data
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/facets/test.jsonnet": []byte(`{"result": "from-template"}`),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
-		os.MkdirAll(filepath.Dir(facetPath), 0755)
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then the jsonnet should be loaded from template data
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "from-template" {
-			t.Errorf("Expected result.result to be 'from-template', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonMarshalError", func(t *testing.T) {
-		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
-		mockShims.JsonMarshal = func(any) ([]byte, error) {
-			return nil, errors.New("marshal error")
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err == nil {
-			t.Fatal("Expected error for JSON marshal failure, got nil")
-		}
-	})
-
-	t.Run("HandlesJsonUnmarshalError", func(t *testing.T) {
-		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
-		mockShims.JsonUnmarshal = func([]byte, any) error {
-			return errors.New("unmarshal error")
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err == nil {
-			t.Fatal("Expected error for JSON unmarshal failure, got nil")
-		}
-	})
-
-	t.Run("HandlesJsonnetWithEmptyDir", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithEmptyDirPath", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		facetPath := jsonnetFile
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithTemplateRootFallback", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/config/test.jsonnet": []byte(`{"result": "from-fallback"}`),
-		}
-		evaluator.SetTemplateData(templateData)
-		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
-		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-		if resultMap["result"] != "from-fallback" {
-			t.Errorf("Expected result.result to be 'from-fallback', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithTemplateRootFallbackWithoutPrefix", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"other/test.jsonnet": []byte(`{"result": "from-fallback-no-prefix"}`),
-		}
-		evaluator.SetTemplateData(templateData)
-		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-		if resultMap["result"] != "from-fallback-no-prefix" {
-			t.Errorf("Expected result.result to be 'from-fallback-no-prefix', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithFilepathRelError", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{}
-		evaluator.SetTemplateData(templateData)
-		jsonnetFile := filepath.Join(templateRoot, "test.jsonnet")
-		os.MkdirAll(filepath.Dir(jsonnetFile), 0755)
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		facetPath := filepath.Join(templateRoot, "test.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-}
 
 func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 	t.Run("LoadsFileContent", func(t *testing.T) {
@@ -533,7 +226,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
 		templateData := map[string][]byte{
-			"_template/facets/test.jsonnet": []byte("found"),
+			"_template/facets/test.yaml": []byte("found"),
 		}
 		evaluator.SetTemplateData(templateData)
 
@@ -541,7 +234,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.jsonnet")}`, facetPath, nil, false)
+		result, err := evaluator.Evaluate(`${file("test.yaml")}`, facetPath, nil, false)
 
 		// Then the file should be found in template data
 		if err != nil {
@@ -557,14 +250,14 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		// Given an evaluator with template data
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
-			"test.jsonnet": []byte("found"),
+			"test.yaml": []byte("found"),
 		}
 		evaluator.SetTemplateData(templateData)
 
 		facetPath := "/test/feature.yaml"
 
 		// When evaluating file function with absolute path
-		_, err := evaluator.Evaluate(`${file("/absolute/path.jsonnet")}`, facetPath, nil, false)
+		_, err := evaluator.Evaluate(`${file("/absolute/path.yaml")}`, facetPath, nil, false)
 
 		// Then it should not find in template data (absolute paths not looked up)
 		if err == nil {
@@ -576,12 +269,12 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		// Given an evaluator with template data
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
-			"test.jsonnet": []byte("found"),
+			"test.yaml": []byte("found"),
 		}
 		evaluator.SetTemplateData(templateData)
 
 		// When evaluating file function with empty feature path
-		_, err := evaluator.Evaluate(`${file("test.jsonnet")}`, "", nil, false)
+		_, err := evaluator.Evaluate(`${file("test.yaml")}`, "", nil, false)
 
 		// Then it should not find in template data
 		if err == nil {

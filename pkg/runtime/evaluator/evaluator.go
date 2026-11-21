@@ -121,7 +121,7 @@ func ExpressionBody(value string) (string, bool) {
 // It uses the config handler for accessing configuration values and supports
 // dynamic value resolution through the provider system. The evaluator handles
 // expression compilation, evaluation, and string interpolation with support
-// for Jsonnet files and file loading functions.
+// for file loading functions.
 type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
@@ -201,7 +201,7 @@ func (e *DefaultExpressionEvaluator) Register(name string, helper func(params []
 }
 
 // Evaluate resolves the Windsor expressions in s, both whole and interpolated ${...} expressions.
-// It loads files and jsonnet as necessary. It defers unresolved expressions when evaluateDeferred is false.
+// It loads files as necessary. It defers unresolved expressions when evaluateDeferred is false.
 // facetPath is the base for relative paths.
 // When scope is nil, the environment is the enriched config. Otherwise it is scope plus the runtime keys.
 // It returns the evaluated value, or an error when evaluation fails or the input is malformed.
@@ -338,7 +338,7 @@ func (e *DefaultExpressionEvaluator) evaluate(s string, facetPath string, scope 
 // precedence: an explicit non-nil scope wins; otherwise the composer-published configScope (which
 // includes facet config blocks, so nil-scope consumers like secret resolution see computed config);
 // otherwise enriched context config alone (pre-composition, or when no composed scope was published).
-// Runtime keys (context, project_root, etc.) are injected so helpers like file() and jsonnet() have
+// Runtime keys (context, project_root, etc.) are injected so helpers like file() and yaml() have
 // context and paths. The expression should not include ${} bookends. Returns the result or an error.
 func (e *DefaultExpressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if rewritten, ok := secretsRuntime.NormalizeExpression(expression); ok {
@@ -357,7 +357,7 @@ func (e *DefaultExpressionEvaluator) evaluateExpression(expression string, facet
 	} else {
 		merged = e.enrichConfig(e.getConfig())
 	}
-	env := e.buildExprEnvironment(merged, facetPath, evaluateDeferred)
+	env := e.buildExprEnvironment(facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, werror.New(fmt.Sprintf("Windsor cannot parse the expression ${%s}: %v", expression, err),
@@ -388,7 +388,7 @@ func (e *DefaultExpressionEvaluator) getConfig() map[string]any {
 // It adds "context" (current context name), "context_path" if the config handler can provide one,
 // "project_root" and "projectName" (basename of project root) when the evaluator has a project root set.
 // All paths are normalized to use forward slashes for cross-platform consistency. The enriched config
-// is used to make runtime context available in expression evaluation and Jsonnet (std.extVar("context"))
+// is used to make runtime context available in expression evaluation
 // without requiring explicit configuration.
 func (e *DefaultExpressionEvaluator) enrichConfig(config map[string]any) map[string]any {
 	enrichedConfig := make(map[string]any)
@@ -398,7 +398,7 @@ func (e *DefaultExpressionEvaluator) enrichConfig(config map[string]any) map[str
 }
 
 // injectRuntimeKeys writes context, context_path, project_root, and projectName into the map so
-// helpers (file(), jsonnet()) and expressions have runtime context when scope is used as the environment.
+// helpers (file(), yaml()) and expressions have runtime context when scope is used as the environment.
 func injectRuntimeKeys(m map[string]any, e *DefaultExpressionEvaluator) {
 	m["context"] = e.configHandler.GetContext()
 	if configRoot, err := e.configHandler.GetConfigRoot(); err == nil {
@@ -411,14 +411,13 @@ func injectRuntimeKeys(m map[string]any, e *DefaultExpressionEvaluator) {
 }
 
 // buildExprEnvironment returns the expr options for one evaluation: AsAny mode, optional member
-// chains, the built-in functions, and the helpers that Register added. The config and facetPath
-// go to the functions that load files, so that relative paths resolve from the facet file.
-func (e *DefaultExpressionEvaluator) buildExprEnvironment(config map[string]any, facetPath string, deferred bool) []expr.Option {
+// chains, the built-in functions, and the helpers that Register added. The facetPath goes to
+// the functions that load files, so that relative paths resolve from the facet file.
+func (e *DefaultExpressionEvaluator) buildExprEnvironment(facetPath string, deferred bool) []expr.Option {
 	opts := []expr.Option{
 		expr.AsAny(),
 		expr.Patch(&optionalChainPatcher{}),
 		e.stringFunction(),
-		e.jsonnetFunction(config, facetPath),
 		e.fileFunction(facetPath),
 		e.envFunction(),
 		e.yamlFunction(facetPath),

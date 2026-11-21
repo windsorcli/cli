@@ -103,7 +103,7 @@ func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 		// Given an evaluator and template data
 		subject, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
-			"test.jsonnet": []byte(`{"key": "value"}`),
+			"test.yaml": []byte(`{"key": "value"}`),
 		}
 
 		// When setting template data
@@ -115,8 +115,8 @@ func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 			t.Fatal("Expected templateData to be set, got nil")
 		}
 
-		if string(concreteEvaluator.TemplateData()["test.jsonnet"]) != `{"key": "value"}` {
-			t.Errorf("Expected templateData to contain test.jsonnet")
+		if string(concreteEvaluator.TemplateData()["test.yaml"]) != `{"key": "value"}` {
+			t.Errorf("Expected templateData to contain test.yaml")
 		}
 	})
 }

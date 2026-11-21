@@ -61,7 +61,7 @@ func TestMockExpressionEvaluator_SetTemplateData(t *testing.T) {
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		called := false
 		expectedData := map[string][]byte{
-			"test.jsonnet": []byte(`{"key": "value"}`),
+			"test.yaml": []byte(`{"key": "value"}`),
 		}
 		mockEvaluator.SetTemplateDataFunc = func(templateData map[string][]byte) {
 			called = true
@@ -85,7 +85,7 @@ func TestMockExpressionEvaluator_SetTemplateData(t *testing.T) {
 
 		// When SetTemplateData is called
 		mockEvaluator.SetTemplateData(map[string][]byte{
-			"test.jsonnet": []byte(`{"key": "value"}`),
+			"test.yaml": []byte(`{"key": "value"}`),
 		})
 
 		// Then no error should occur (does nothing)

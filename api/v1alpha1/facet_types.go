@@ -73,7 +73,7 @@ type Facet struct {
 	// Metadata includes the facet's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
-	// Path is the facet's file path, used to resolve relative paths in jsonnet() and file().
+	// Path is the facet's file path, used to resolve relative paths in file() and yaml().
 	Path string `yaml:"-"`
 
 	// Source names the blueprint source this facet came from during composition, and is not marshaled.
