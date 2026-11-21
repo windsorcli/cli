@@ -275,3 +275,96 @@ func TestWarningHandlerFor(t *testing.T) {
 		}
 	})
 }
+
+func TestDynamicKubernetesClient_GetNodeReadyStatus(t *testing.T) {
+	newNodeListServer := func(t *testing.T) *httptest.Server {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"apiVersion": "v1",
+				"kind": "NodeList",
+				"items": [
+					{
+						"metadata": {"name": "controlplane-2"},
+						"status": {
+							"addresses": [
+								{"type": "InternalIP", "address": "192.168.3.23"},
+								{"type": "Hostname", "address": "controlplane-2"}
+							],
+							"conditions": [{"type": "Ready", "status": "True"}]
+						}
+					},
+					{
+						"metadata": {"name": "worker-1"},
+						"status": {
+							"addresses": [
+								{"type": "InternalIP", "address": "192.168.3.24"},
+								{"type": "ExternalIP", "address": "203.0.113.10"}
+							],
+							"conditions": [{"type": "Ready", "status": "False"}]
+						}
+					}
+				]
+			}`))
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	t.Run("MatchesInternalAndExternalIPAddresses", func(t *testing.T) {
+		// Given a cluster whose node names differ from their IP addresses
+		server := newNodeListServer(t)
+		path := filepath.Join(t.TempDir(), "kubeconfig")
+		writeTestKubeconfig(t, path, server.URL, time.Now())
+		t.Setenv("KUBECONFIG", path)
+		c := NewDynamicKubernetesClient(nil)
+
+		// When checking readiness by InternalIP, ExternalIP, and an unmatched address
+		status, err := c.GetNodeReadyStatus(t.Context(), []string{"192.168.3.23", "203.0.113.10", "192.168.3.99"})
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+
+		// Then matched IP addresses report Ready status keyed by each address and unknown ones are omitted
+		if len(status) != 2 {
+			t.Fatalf("expected 2 entries, got %v", status)
+		}
+		if ready, ok := status["192.168.3.23"]; !ok || !ready {
+			t.Errorf("expected 192.168.3.23 to be true, got %v (present=%v)", ready, ok)
+		}
+		if ready, ok := status["203.0.113.10"]; !ok || ready {
+			t.Errorf("expected 203.0.113.10 to be false, got %v (present=%v)", ready, ok)
+		}
+		if _, ok := status["192.168.3.99"]; ok {
+			t.Errorf("expected unknown node 192.168.3.99 to be omitted")
+		}
+	})
+
+	t.Run("MatchesByNodeNameAndListsAllWhenEmpty", func(t *testing.T) {
+		// Given a cluster with named nodes
+		server := newNodeListServer(t)
+		path := filepath.Join(t.TempDir(), "kubeconfig")
+		writeTestKubeconfig(t, path, server.URL, time.Now())
+		t.Setenv("KUBECONFIG", path)
+		c := NewDynamicKubernetesClient(nil)
+
+		// When querying by node name or with an empty filter
+		byName, err := c.GetNodeReadyStatus(t.Context(), []string{"controlplane-2"})
+		if err != nil {
+			t.Fatalf("expected no error querying by name, got: %v", err)
+		}
+		if len(byName) != 1 || !byName["controlplane-2"] {
+			t.Fatalf("expected controlplane-2=true, got %v", byName)
+		}
+
+		all, err := c.GetNodeReadyStatus(t.Context(), nil)
+		if err != nil {
+			t.Fatalf("expected no error listing all nodes, got: %v", err)
+		}
+		if len(all) != 2 || !all["controlplane-2"] || all["worker-1"] {
+			t.Fatalf("expected controlplane-2=true and worker-1=false, got %v", all)
+		}
+	})
+}
