@@ -99,8 +99,8 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 	return healthyTimeoutError(lastErr)
 }
 
-// GetNodeReadyStatus returns a map of node names to their Ready condition status.
-// Returns a map of node names to Ready status (true if Ready, false if NotReady), or an error if listing fails.
+// GetNodeReadyStatus returns the Ready condition status of each node in nodeNames.
+// Each value matches a node by its name, InternalIP, or ExternalIP, and is the key in the result.
 func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 	if k.client == nil {
 		return nil, fmt.Errorf("kubernetes client not initialized")
