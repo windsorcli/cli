@@ -213,6 +213,28 @@ func MinimalPATHEnv(env []string) []string {
 	return append(out, "PATH=/usr/bin:/bin")
 }
 
+// WithFakeDocker returns env with a stub docker executable first on PATH.
+// The stub exits 0 for every call, so the Docker daemon check passes without a daemon.
+// Use it for tests that run a docker-platform workstation on a host with no Docker.
+func WithFakeDocker(t *testing.T, env []string) []string {
+	t.Helper()
+	binDir := t.TempDir()
+	script := filepath.Join(binDir, "docker")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { // #nosec G306 -- test stub must be executable
+		t.Fatalf("write fake docker: %v", err)
+	}
+	out := make([]string, 0, len(env)+1)
+	path := os.Getenv("PATH")
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "PATH="+binDir+string(os.PathListSeparator)+path)
+}
+
 // PrepareFixture copies the named fixture into a temp dir, runs windsor init with a temp
 // HOME so the dir is trusted, and returns workDir and env. Include env in RunCLI so the
 // trusted check passes. Marks the workdir as a git repo before init because init
