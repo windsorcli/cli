@@ -170,33 +170,20 @@ func extractExprASTRefs(s string) []string {
 }
 
 // exprScopeRefs returns the scope references of the ${...} expressions in s. It returns false when
-// an expression has no end, does not parse, or calls jsonnet, because a Jsonnet file reads the whole
-// scope and the expression does not name what it reads.
+// an expression has no end or does not parse.
 func exprScopeRefs(s string) ([]string, bool) {
 	var refs []string
 	seen := make(map[string]bool)
 	resolved := true
 	complete := forEachExpr(s, func(expr string) {
 		tree, err := parser.Parse(expr)
-		if err != nil || callsJsonnet(tree.Node) {
+		if err != nil {
 			resolved = false
 			return
 		}
 		walkASTForRefs(tree.Node, &refs, seen)
 	})
 	return refs, complete && resolved
-}
-
-// callsJsonnet reports whether node holds a call of the jsonnet helper.
-func callsJsonnet(node ast.Node) bool {
-	return ast.Find(node, func(candidate ast.Node) bool {
-		call, ok := candidate.(*ast.CallNode)
-		if !ok {
-			return false
-		}
-		callee, ok := call.Callee.(*ast.IdentifierNode)
-		return ok && callee.Value == "jsonnet"
-	}) != nil
 }
 
 // extractValueRefs returns the scope reference paths whose values can reach the result of the ${...}
