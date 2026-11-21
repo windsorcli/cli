@@ -517,7 +517,7 @@ func TestStack_LocalStateSnapshot(t *testing.T) {
 		snapshot, err := stack.LocalStateSnapshot("cni")
 
 		// Then it returns the identity and size of the state
-		if err != nil || snapshot == nil || *snapshot != (StateSnapshot{Lineage: "abc", Serial: 7, Resources: 2}) {
+		if err != nil || snapshot == nil || snapshot.Lineage != "abc" || snapshot.Serial != 7 || snapshot.Resources != 2 || snapshot.Digest == "" {
 			t.Errorf("Expected lineage abc, serial 7, 2 resources, got %+v, %v", snapshot, err)
 		}
 	})
@@ -579,7 +579,7 @@ func TestStack_StateSnapshot(t *testing.T) {
 		snapshot, err := stack.StateSnapshot(createTestBlueprint(), "remote/path")
 
 		// Then it runs init, then state pull, and returns the snapshot
-		if err != nil || snapshot == nil || *snapshot != (StateSnapshot{Lineage: "abc", Serial: 3, Resources: 1}) {
+		if err != nil || snapshot == nil || snapshot.Lineage != "abc" || snapshot.Serial != 3 || snapshot.Resources != 1 || snapshot.Digest == "" {
 			t.Fatalf("Expected lineage abc, serial 3, 1 resource, got %+v, %v", snapshot, err)
 		}
 		if !slices.Equal(*commands, []string{"init", "state pull"}) {
@@ -670,6 +670,39 @@ func TestStack_BackendPointerType(t *testing.T) {
 		// Then it returns an empty type and no error
 		if err != nil || backendType != "" {
 			t.Errorf("Expected an empty type, got %q, %v", backendType, err)
+		}
+	})
+}
+
+func TestParseStateSnapshot_Digest(t *testing.T) {
+	digest := func(t *testing.T, data string) string {
+		t.Helper()
+		snapshot, err := parseStateSnapshot([]byte(data))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		return snapshot.Digest
+	}
+
+	t.Run("IgnoresLineageSerialAndKeyOrder", func(t *testing.T) {
+		// Given two states with the same content, a new lineage and serial, and another key order
+		a := digest(t, `{"lineage":"a","serial":10,"resources":[{"type":"t","name":"n"}],"outputs":{"x":{"value":1}}}`)
+		b := digest(t, `{"outputs":{"x":{"value":1}},"resources":[{"name":"n","type":"t"}],"serial":1,"lineage":"b"}`)
+
+		// Then the digests match
+		if a != b {
+			t.Errorf("Expected equal digests, got %s and %s", a, b)
+		}
+	})
+
+	t.Run("ChangesWhenAResourceChanges", func(t *testing.T) {
+		// Given two states with one differing resource attribute
+		a := digest(t, `{"resources":[{"name":"n","attr":1}]}`)
+		b := digest(t, `{"resources":[{"name":"n","attr":2}]}`)
+
+		// Then the digests differ
+		if a == b {
+			t.Error("Expected different digests")
 		}
 	})
 }

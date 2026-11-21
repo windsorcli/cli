@@ -121,7 +121,7 @@ func setupMoveFixture(t *testing.T, backend string) *moveFixture {
 
 // snapshot returns a state snapshot with the given lineage, serial 5, and 3 resources.
 func snapshot(lineage string) *terraforminfra.StateSnapshot {
-	return &terraforminfra.StateSnapshot{Lineage: lineage, Serial: 5, Resources: 3}
+	return &terraforminfra.StateSnapshot{Lineage: lineage, Serial: 5, Resources: 3, Digest: "d-" + lineage}
 }
 
 // componentsBlueprint returns a blueprint with one terraform component for each path.
@@ -401,12 +401,12 @@ func TestProvisioner_Up_BackendMoveMismatchReport(t *testing.T) {
 			c := *s
 			c.Serial--
 			return &c
-		}, "kubernetes: lineage a, serial 4, 3 resources"},
+		}, "kubernetes: lineage a, serial 4, 3 resources, content d-a"},
 		{"CopyHasOtherLineage", func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
 			c := *s
-			c.Lineage = "b"
+			c.Lineage, c.Digest = "b", "d-b"
 			return &c
-		}, "kubernetes: lineage b, serial 5, 3 resources"},
+		}, "kubernetes: lineage b, serial 5, 3 resources, content d-b"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -422,12 +422,34 @@ func TestProvisioner_Up_BackendMoveMismatchReport(t *testing.T) {
 			if err == nil {
 				t.Fatal("Expected a mismatch error")
 			}
-			for _, want := range []string{"local: lineage a, serial 5, 3 resources", tc.want} {
+			for _, want := range []string{"local: lineage a, serial 5, 3 resources, content d-a", tc.want} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("Expected %q in %q", want, err.Error())
 				}
 			}
 		})
+	}
+}
+
+func TestProvisioner_Up_BackendMoveNewLineage(t *testing.T) {
+	// Given a copy with a new lineage and serial 1 but the same content, as terraform writes to an empty s3 key
+	f := setupMoveFixture(t, "s3")
+	f.pointers["backend"], f.local["backend"] = "local", snapshot("a")
+	f.copyFn = func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
+		c := *s
+		c.Lineage, c.Serial = "new", 1
+		return &c
+	}
+
+	// When Up is called
+	_, err := f.prov.Up(context.Background(), componentsBlueprint("backend"))
+
+	// Then the move passes and removes the local file
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if f.local["backend"] != nil {
+		t.Error("Expected the local file to be removed")
 	}
 }
 

@@ -370,14 +370,19 @@ func (i *Provisioner) planComponentInStateBackend(componentID string, fn func() 
 // Helpers
 // =============================================================================
 
-// stateCopyMatches reports whether copied is a full copy of source. The copy must have the same
-// lineage and resource count, and a serial no lower than the source. Terraform can raise the serial
-// by one when it writes over older state in the destination.
+// stateCopyMatches reports whether copied is a full copy of source. A copy with the same lineage must
+// have the same resource count and a serial no lower than the source. Terraform can raise the serial
+// by one when it writes over older state in the destination. A copy with another lineage must have the
+// same resource count and the same content digest. Terraform gives a copy a new lineage and serial 1
+// when the destination holds no state object, as the s3 backend does for a new key.
 func stateCopyMatches(source, copied *terraforminfra.StateSnapshot) bool {
-	if source == nil || copied == nil {
+	if source == nil || copied == nil || copied.Resources != source.Resources {
 		return false
 	}
-	return copied.Lineage == source.Lineage && copied.Resources == source.Resources && copied.Serial >= source.Serial
+	if copied.Lineage == source.Lineage {
+		return copied.Serial >= source.Serial
+	}
+	return source.Digest != "" && copied.Digest == source.Digest
 }
 
 // describeState returns the backend type and the lineage, serial, and resource count of snapshot. It
@@ -386,7 +391,7 @@ func describeState(backendType string, snapshot *terraforminfra.StateSnapshot) s
 	if snapshot == nil {
 		return fmt.Sprintf("%s: read back empty", backendType)
 	}
-	return fmt.Sprintf("%s: lineage %s, serial %d, %d resources", backendType, snapshot.Lineage, snapshot.Serial, snapshot.Resources)
+	return fmt.Sprintf("%s: lineage %s, serial %d, %d resources, content %.8s", backendType, snapshot.Lineage, snapshot.Serial, snapshot.Resources, snapshot.Digest)
 }
 
 // unreachableMoveError returns the error for a move from the from backend to the to backend that
