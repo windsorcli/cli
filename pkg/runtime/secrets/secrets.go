@@ -6,10 +6,13 @@
 package secrets
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -83,6 +86,14 @@ type Provider interface {
 	Resolve(ref SecretRef) (string, bool, error)
 }
 
+// Checker is the optional contract of a provider that can confirm its backend is reachable
+// before any secret is read. Account names the backend in messages and groups the providers
+// that share one account.
+type Checker interface {
+	Account() string
+	Check() error
+}
+
 // =============================================================================
 // Resolver
 // =============================================================================
@@ -148,6 +159,28 @@ func (r *Resolver) LoadAll() error {
 		}
 	}
 	return nil
+}
+
+// CheckReachable confirms that each 1Password account is reachable, with one check per account.
+// Each check shows as a progress step under ctx. It checks every account and returns all
+// failures joined, so one run reports every unreachable account.
+func (r *Resolver) CheckReachable(ctx context.Context) error {
+	seen := make(map[string]bool)
+	var errs []error
+	for _, p := range r.providers {
+		c, ok := p.(Checker)
+		if !ok || seen[c.Account()] {
+			continue
+		}
+		seen[c.Account()] = true
+		err := presenter.Track(ctx, "secrets", fmt.Sprintf("Checking 1Password access (%s)", c.Account()), func(context.Context) error {
+			return c.Check()
+		})
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // =============================================================================

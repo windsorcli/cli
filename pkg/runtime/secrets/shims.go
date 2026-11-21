@@ -6,9 +6,13 @@
 package secrets
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"os/signal"
 
 	"github.com/1password/onepassword-sdk-go"
 
@@ -27,7 +31,10 @@ type Shims struct {
 	NewOnePasswordClient func(context.Context, ...onepassword.ClientOption) (*onepassword.Client, error)
 	ResolveSecret        func(*onepassword.Client, context.Context, string) (string, error)
 	Command              func(name string, arg ...string) *exec.Cmd
-	CmdOutput            func(cmd *exec.Cmd) ([]byte, error)
+	CmdOutput            func(ctx context.Context, cmd *exec.Cmd) (stdout []byte, stderr []byte, err error)
+	ListVaults           func(*onepassword.Client, context.Context) error
+	WatchInterrupt       func() (<-chan struct{}, func())
+	HintWriter           io.Writer
 }
 
 // =============================================================================
@@ -36,6 +43,8 @@ type Shims struct {
 
 // NewShims returns a Shims with every field set to its real implementation. DecryptFile runs
 // sops and returns its stderr as the error text when sops exits with a failure.
+// CmdOutput runs a command under a context and returns its stdout and stderr separately.
+// WatchInterrupt reports an interrupt signal on its channel until its stop function runs.
 func NewShims() *Shims {
 	return &Shims{
 		Shims: *shims.NewShims(),
@@ -62,9 +71,49 @@ func NewShims() *Shims {
 			}
 			return client.Secrets().Resolve(ctx, secretRef)
 		},
-		Command: exec.Command,
-		CmdOutput: func(cmd *exec.Cmd) ([]byte, error) {
-			return cmd.Output()
+		ListVaults: func(client *onepassword.Client, ctx context.Context) error {
+			if client == nil {
+				return fmt.Errorf("client is nil")
+			}
+			_, err := client.Vaults().List(ctx)
+			return err
 		},
+		Command: exec.Command,
+		CmdOutput: func(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			if err := cmd.Start(); err != nil {
+				return nil, nil, err
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			select {
+			case err := <-done:
+				return stdout.Bytes(), stderr.Bytes(), err
+			case <-ctx.Done():
+				_ = cmd.Process.Kill()
+				<-done
+				return nil, stderr.Bytes(), ctx.Err()
+			}
+		},
+		WatchInterrupt: func() (<-chan struct{}, func()) {
+			sigCh := make(chan os.Signal, 1)
+			out := make(chan struct{}, 1)
+			signal.Notify(sigCh, os.Interrupt)
+			stop := make(chan struct{})
+			go func() {
+				select {
+				case <-sigCh:
+					out <- struct{}{}
+				case <-stop:
+				}
+			}()
+			return out, func() {
+				signal.Stop(sigCh)
+				close(stop)
+			}
+		},
+		HintWriter: os.Stderr,
 	}
 }
