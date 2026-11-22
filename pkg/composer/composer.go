@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/inventory"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -37,6 +38,7 @@ type Composer struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	projectRoot   string
+	baseRel       string
 	configRoot    string
 	templateRoot  string
 	shims         *Shims
@@ -75,6 +77,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		projectRoot:   rt.ProjectRoot,
+		baseRel:       rt.BaseRel(),
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
 		shims:         NewShims(),
@@ -148,6 +151,29 @@ func (r *Composer) Bundle(outputPath, tag string) (string, error) {
 	}
 
 	return actualOutputPath, nil
+}
+
+// CheckKustomizePaths composes the blueprint and returns warnings for kustomization paths and
+// components that the project lacks, and for kustomize directories under contexts/ that no
+// kustomization can reach. The misplaced-directory warnings need no composition. A composition error
+// ends the path check and is returned as composeErr, because a context without values can fail to compose.
+func (r *Composer) CheckKustomizePaths() (warnings []string, composeErr error) {
+	basePrefix := r.baseRel
+	for _, dir := range kubernetes.FindMisplacedKustomizeDirs(r.projectRoot, basePrefix) {
+		warnings = append(warnings, kubernetes.MisplacedKustomizeMessage(dir, basePrefix))
+	}
+
+	r.BlueprintHandler.SetSkipValidation(true)
+	r.BlueprintHandler.SetAllowUninitialized(true)
+	if err := r.BlueprintHandler.LoadBlueprint(); err != nil {
+		return warnings, err
+	}
+	bp := r.BlueprintHandler.Generate()
+	if bp == nil {
+		return warnings, nil
+	}
+	problems, _ := kubernetes.CheckKustomizePaths(bp, r.projectRoot, basePrefix)
+	return append(problems, warnings...), nil
 }
 
 // Push bundles the project files and pushes the artifact to registryURL.

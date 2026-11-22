@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/internal/werror"
@@ -20,6 +21,8 @@ var bundleCmd = &cobra.Command{
 Uses metadata.yaml ('name', 'version') to derive the output filename when --tag is not given. If neither is set, --tag is required.
 
 When --output is a directory, the filename is derived from the tag.
+
+Before it bundles, the command warns about kustomization paths and components that the project lacks, and about kustomize directories under contexts/. Manifests belong in <project>/kustomize/.
 
 The archive holds artifact-manifest.cdx.json, a CycloneDX BOM of the charts and images of the blueprint and its oci:// sources. The command pulls each uncached source. It reads the digest of each tag with no digest from its registry or Helm repository.`,
 	Example: `# Bundle using metadata.yaml for name/version, into the current directory
@@ -56,6 +59,14 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/`,
 
 		tag, _ := cmd.Flags().GetString("tag")
 		outputPath, _ := cmd.Flags().GetString("output")
+
+		warnings, composeErr := comp.CheckKustomizePaths()
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
+		if composeErr != nil && verbose {
+			fmt.Fprintf(os.Stderr, "skipped kustomize path check: %v\n", composeErr)
+		}
 
 		actualOutputPath, err := comp.Bundle(outputPath, tag)
 		if err != nil {
