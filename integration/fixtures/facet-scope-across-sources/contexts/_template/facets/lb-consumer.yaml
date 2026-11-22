@@ -1,0 +1,11 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: lb-consumer
+  description: Reads a config block that a facet of the core source defines.
+
+terraform:
+
+- path: cluster
+  inputs:
+    lb_mode: ${lb_effective.mode}
