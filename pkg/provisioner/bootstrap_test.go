@@ -746,6 +746,87 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		}
 	})
 
+	runUp := func(t *testing.T, hasRemote func(id string) (bool, error)) []string {
+		t.Helper()
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "network", Path: "network"},
+				{Name: "backend", Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, id string) (bool, error) {
+			return hasRemote(id)
+		}
+		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			ops = append(ops, fmt.Sprintf("up:%d", len(b.TerraformComponents)))
+			return false, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			ops = append(ops, "migrate")
+			return nil, nil
+		}
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		if _, err := prov.Up(context.Background(), bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		return ops
+	}
+
+	t.Run("SkipsPivotWhenRemoteHoldsStateOfEveryBackendComponent", func(t *testing.T) {
+		// Given remote state for every backend component
+		// When Up runs
+		ops := runUp(t, func(string) (bool, error) { return true, nil })
+
+		// Then Up applies the whole blueprint once against the remote backend
+		if want := []string{"up:3"}; !slices.Equal(ops, want) {
+			t.Errorf("Expected %v, got %v", want, ops)
+		}
+	})
+
+	t.Run("PivotsWhenABackendComponentHasNoRemoteState", func(t *testing.T) {
+		// Given remote state for the backend component but not for the component before it
+		// When Up runs
+		ops := runUp(t, func(id string) (bool, error) { return id == "backend", nil })
+
+		// Then Up runs the pivot
+		if len(ops) == 0 || ops[0] != "set:local" {
+			t.Errorf("Expected the pivot to start with set:local, got %v", ops)
+		}
+	})
+
+	t.Run("PivotsWhenTheRemoteProbeFails", func(t *testing.T) {
+		// Given a probe that fails, as it does when the bucket does not exist
+		// When Up runs
+		ops := runUp(t, func(string) (bool, error) { return false, fmt.Errorf("bucket not found") })
+
+		// Then Up runs the pivot
+		if len(ops) == 0 || ops[0] != "set:local" {
+			t.Errorf("Expected the pivot to start with set:local, got %v", ops)
+		}
+	})
+
 	t.Run("NoBackendDeclaredStillAppliesDirectlyOnceClusterExists", func(t *testing.T) {
 		// Given a kubernetes backend, no declared backend, and an existing kubeconfig
 		mocks := setupProvisionerMocks(t)

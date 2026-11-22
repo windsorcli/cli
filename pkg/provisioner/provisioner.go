@@ -373,7 +373,9 @@ func (i *Provisioner) Close() {
 // =============================================================================
 
 // up applies the blueprint directly, or through the backend pivot when the blueprint declares a
-// backend on a remote backend type. A kubernetes backend type with no declared backend and no
+// backend on a remote backend type and the remote backend does not yet hold the state of every backend
+// component. When it does, as backendHoldsState describes, up applies directly against the remote
+// backend. A kubernetes backend type with no declared backend and no
 // kubeconfig returns an error with a remediation hint.
 func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 
@@ -394,6 +396,9 @@ func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 	}
 	if len(backendComponents) == 0 {
 		return applyFlat()
+	}
+	if i.backendHoldsState(blueprint, backendComponents) {
+		return i.applyDirect(ctx, blueprint, onApply...)
 	}
 	return i.applyWithBackendPivot(ctx, blueprint, backendComponents, onApply...)
 }
