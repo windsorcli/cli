@@ -39,7 +39,8 @@ func (r *TestRunner) validateBlueprint(bp *blueprintv1alpha1.Blueprint) []string
 // is missing from the project. It resolves each path as Flux does, so a kustomization that reads the
 // blueprint itself must have kustomize/<path>/ and one directory for each component under the project
 // base. It skips kustomizations that read a remote source and names them on stderr under --verbose.
-// It also reports kustomize directories under contexts/, which no kustomization can reach.
+// When a path problem exists, it also names kustomize directories under contexts/, which no kustomization
+// can reach. A blueprint whose paths all resolve passes, so a stray directory alone never fails a test.
 func (r *TestRunner) validateKustomizePaths(bp *blueprintv1alpha1.Blueprint) []string {
 	basePrefix := ""
 	if rel, err := filepath.Rel(r.baseProjectRoot, r.basePath); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {

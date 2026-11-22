@@ -13,6 +13,8 @@ Uses metadata.yaml ('name', 'version') to derive the output filename when --tag 
 
 When --output is a directory, the filename is derived from the tag.
 
+Before it bundles, the command warns about kustomization paths and components that the project lacks, and about kustomize directories under contexts/. Manifests belong in <project>/kustomize/.
+
 The archive holds artifact-manifest.cdx.json, a CycloneDX BOM of the charts and images of the blueprint and its oci:// sources. The command pulls each uncached source. It reads the digest of each tag with no digest from its registry or Helm repository.
 
 ## Flags
