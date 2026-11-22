@@ -125,8 +125,10 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 // =============================================================================
 
 // setConfigDefaults sets the shared config defaults. ResolveConfig calls it before and after the config load.
-// It sets workstation.runtime from the host OS in dev mode, or when this run sets a docker or incus platform.
+// It sets workstation.runtime from the host OS in dev mode, or when this run sets the docker platform.
 // A platform saved from an earlier run does not set workstation.runtime.
+// The incus platform gets colima in dev mode, because a local Incus workstation runs on colima.
+// Outside dev mode it gets no default, because it can target a remote cluster with no local workstation.
 // In dev mode, it also sets the platform if the config does not set it.
 func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	existingPlatform := rt.canonicalPlatform()
@@ -158,12 +160,16 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	needsWorkstationRuntime := effectivePlatform == "" || isWorkstationPlatform(effectivePlatform)
 	explicitWorkstationPlatform := isWorkstationPlatform(overridePlatform)
 	shouldDefaultWorkstationRuntime := isDevMode || explicitWorkstationPlatform
-	if shouldDefaultWorkstationRuntime && workstationRuntime == "" && needsWorkstationRuntime {
-		switch rt.Shims.Goos() {
-		case "darwin", "windows":
-			workstationRuntime = "docker-desktop"
-		default:
-			workstationRuntime = "docker"
+	if shouldDefaultWorkstationRuntime && workstationRuntime == "" {
+		if isDevMode && effectivePlatform == "incus" {
+			workstationRuntime = "colima"
+		} else if needsWorkstationRuntime {
+			switch rt.Shims.Goos() {
+			case "darwin", "windows":
+				workstationRuntime = "docker-desktop"
+			default:
+				workstationRuntime = "docker"
+			}
 		}
 	}
 
@@ -271,7 +277,8 @@ func explicitPlatformFromOverrides(flagOverrides map[string]any) (string, bool) 
 	return "", false
 }
 
-// isWorkstationPlatform reports whether platform requires a workstation runtime.
+// isWorkstationPlatform reports whether platform gets a workstation runtime default from the host OS.
+// Incus is excluded. setConfigDefaults defaults it to colima in dev mode only.
 func isWorkstationPlatform(platform string) bool {
-	return platform == "docker" || platform == "incus"
+	return platform == "docker"
 }

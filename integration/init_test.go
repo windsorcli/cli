@@ -189,6 +189,70 @@ func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 	}
 }
 
+// TestInit_IncusPlatformWithoutVmDriverSetsNoWorkstation verifies that --platform incus alone sets no workstation runtime.
+func TestInit_IncusPlatformWithoutVmDriverSetsNoWorkstation(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--platform", "incus"}, env)
+	if err != nil {
+		t.Fatalf("init home --platform incus: %v\nstderr: %s", err, stderr)
+	}
+
+	for _, path := range []string{
+		filepath.Join(dir, ".windsor", "contexts", "home", "workstation.yaml"),
+		filepath.Join(dir, "contexts", "home", "values.yaml"),
+	} {
+		if !hasFile(path) {
+			continue
+		}
+		if wsRuntime, ok := getPathValue(readYAMLFile(t, path), "workstation", "runtime"); ok {
+			t.Errorf("expected no workstation.runtime in %s, got %v", path, wsRuntime)
+		}
+	}
+}
+
+// TestInit_DevIncusPlatformDefaultsToColima verifies that a local dev context on the incus platform gets the colima runtime without --vm-driver.
+func TestInit_DevIncusPlatformDefaultsToColima(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-incus", "--platform", "incus"}, env)
+	if err != nil {
+		t.Fatalf("init local-incus --platform incus: %v\nstderr: %s", err, stderr)
+	}
+
+	statePath := filepath.Join(dir, ".windsor", "contexts", "local-incus", "workstation.yaml")
+	if !hasFile(statePath) {
+		t.Fatalf("expected workstation.yaml at %s", statePath)
+	}
+	if wsRuntime, ok := getPathValue(readYAMLFile(t, statePath), "workstation", "runtime"); !ok || wsRuntime != "colima" {
+		t.Errorf("expected workstation.runtime=colima, got %v", wsRuntime)
+	}
+}
+
+// TestInit_IncusPlatformWithColimaIncusSetsWorkstation verifies that --vm-driver colima-incus still sets the colima runtime.
+func TestInit_IncusPlatformWithColimaIncusSetsWorkstation(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--platform", "incus", "--vm-driver", "colima-incus"}, env)
+	if err != nil {
+		t.Fatalf("init home --platform incus --vm-driver colima-incus: %v\nstderr: %s", err, stderr)
+	}
+
+	statePath := filepath.Join(dir, ".windsor", "contexts", "home", "workstation.yaml")
+	if !hasFile(statePath) {
+		t.Fatalf("expected workstation.yaml at %s", statePath)
+	}
+	if wsRuntime, ok := getPathValue(readYAMLFile(t, statePath), "workstation", "runtime"); !ok || wsRuntime != "colima" {
+		t.Errorf("expected workstation.runtime=colima, got %v", wsRuntime)
+	}
+}
+
 // TestInit_PersistsConfigWhenRequirementUnmet verifies that a failed init (an unmet facet
 // requirement surfaced during composition) still writes contexts/<name>/values.yaml carrying the
 // platform and the --set values, so the operator can add the missing value and re-run instead of
