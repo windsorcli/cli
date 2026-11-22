@@ -38,6 +38,7 @@ type Composer struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	projectRoot   string
+	baseRel       string
 	configRoot    string
 	templateRoot  string
 	shims         *Shims
@@ -76,6 +77,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		projectRoot:   rt.ProjectRoot,
+		baseRel:       rt.BaseRel(),
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
 		shims:         NewShims(),
@@ -156,10 +158,7 @@ func (r *Composer) Bundle(outputPath, tag string) (string, error) {
 // kustomization can reach. The misplaced-directory warnings need no composition. A composition error
 // ends the path check and is returned as composeErr, because a context without values can fail to compose.
 func (r *Composer) CheckKustomizePaths() (warnings []string, composeErr error) {
-	basePrefix := ""
-	if rel, err := filepath.Rel(r.projectRoot, r.basePath); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-		basePrefix = filepath.ToSlash(rel)
-	}
+	basePrefix := r.baseRel
 	for _, dir := range kubernetes.FindMisplacedKustomizeDirs(r.projectRoot, basePrefix) {
 		warnings = append(warnings, kubernetes.MisplacedKustomizeMessage(dir, basePrefix))
 	}
