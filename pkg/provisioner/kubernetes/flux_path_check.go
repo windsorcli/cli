@@ -64,7 +64,8 @@ func CheckKustomizePaths(bp *blueprintv1alpha1.Blueprint, projectRoot, basePrefi
 // project root. Flux reads <base>/kustomize only, so manifests under contexts/_template/kustomize
 // never resolve. It returns nil when contexts/ does not exist.
 func FindMisplacedKustomizeDirs(projectRoot, basePrefix string) []string {
-	contexts := filepath.Join(projectRoot, filepath.FromSlash(basePrefix), "contexts")
+	base := filepath.Join(projectRoot, filepath.FromSlash(basePrefix))
+	contexts := filepath.Join(base, "contexts")
 	var found []string
 	_ = filepath.WalkDir(contexts, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
