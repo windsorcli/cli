@@ -31,6 +31,8 @@ type MockKubernetesManager struct {
 	GetKustomizationInventoryFunc       func(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	GetNodeNamesByAddressFunc           func(ctx context.Context, address string) ([]string, error)
+	RemoveStaleNodesFunc                func(ctx context.Context, address string, previousNames []string) ([]string, error)
 	ApplyBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprintFunc                 func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	PruneBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
@@ -168,6 +170,22 @@ func (m *MockKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
+}
+
+// GetNodeNamesByAddress implements KubernetesManager interface. The default returns no names.
+func (m *MockKubernetesManager) GetNodeNamesByAddress(ctx context.Context, address string) ([]string, error) {
+	if m.GetNodeNamesByAddressFunc != nil {
+		return m.GetNodeNamesByAddressFunc(ctx, address)
+	}
+	return nil, nil
+}
+
+// RemoveStaleNodes implements KubernetesManager interface. The default deletes nothing.
+func (m *MockKubernetesManager) RemoveStaleNodes(ctx context.Context, address string, previousNames []string) ([]string, error) {
+	if m.RemoveStaleNodesFunc != nil {
+		return m.RemoveStaleNodesFunc(ctx, address, previousNames)
+	}
+	return nil, nil
 }
 
 // ApplyBlueprint implements KubernetesManager interface

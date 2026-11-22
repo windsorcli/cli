@@ -50,6 +50,8 @@ type KubernetesManager interface {
 	GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	GetNodeNamesByAddress(ctx context.Context, address string) ([]string, error)
+	RemoveStaleNodes(ctx context.Context, address string, previousNames []string) ([]string, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	PruneBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error
@@ -93,6 +95,7 @@ type Timing struct {
 	HealthCheckPollInterval              time.Duration
 	HealthCheckSettleDuration            time.Duration
 	NodeReadyPollInterval                time.Duration
+	NodeRegistrationTimeout              time.Duration
 }
 
 // BaseKubernetesManager implements the KubernetesManager interface.
@@ -146,6 +149,7 @@ func DefaultTiming() Timing {
 		HealthCheckPollInterval:              10 * time.Second,
 		HealthCheckSettleDuration:            30 * time.Second,
 		NodeReadyPollInterval:                5 * time.Second,
+		NodeRegistrationTimeout:              3 * time.Minute,
 	}
 }
 
