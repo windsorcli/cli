@@ -207,7 +207,10 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	cmdErr := s.shims.CmdWait(cmd)
 
 	if firstErr != nil || cmdErr != nil {
-		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()), firstErr)
+		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()))
+		if firstErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", firstErr)
+		}
 		if cmdErr != nil {
 			return s.scrubString(stdoutBuf.String()), werror.Wrap(cmdErr, "command execution failed")
 		}

@@ -1439,6 +1439,42 @@ func TestShell_ExecProgress(t *testing.T) {
 			t.Errorf("Expected output 'test output', got '%s'", output)
 		}
 	})
+
+	t.Run("OmitsNilErrorLineWhenOnlyCommandFails", func(t *testing.T) {
+		// Given a command that exits non-zero while the output streams read cleanly
+		subject, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return exec.Command("test-command")
+		}
+		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("")), nil
+		}
+		mocks.Shims.StderrPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("boom\n")), nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error { return nil }
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error { return fmt.Errorf("command failed") }
+
+		// When executing the command while capturing stderr
+		origStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		_, err := subject.ExecProgress("test progress", "test-command")
+		_ = w.Close()
+		os.Stderr = origStderr
+		captured, _ := io.ReadAll(r)
+
+		// Then the failure block has no "Error: <nil>" line
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if strings.Contains(string(captured), "<nil>") {
+			t.Errorf("Expected no <nil> in output, got %q", captured)
+		}
+		if !strings.Contains(string(captured), "boom") {
+			t.Errorf("Expected stderr in output, got %q", captured)
+		}
+	})
 }
 
 func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
