@@ -306,7 +306,11 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 			upgradeNodeTimeout = constants.DefaultNodeUpgradeTimeout
 		}
 		if !cmd.Flags().Changed("offline-timeout") {
-			upgradeNodeOfflineTimeout = constants.DefaultNodeOfflineTimeout
+			if cmd.Flags().Changed("timeout") {
+				upgradeNodeOfflineTimeout = upgradeNodeTimeout
+			} else {
+				upgradeNodeOfflineTimeout = constants.DefaultNodeOfflineTimeout
+			}
 		}
 		if upgradeNodeTimeout > 0 && upgradeNodeOfflineTimeout > upgradeNodeTimeout {
 			return werror.New(fmt.Sprintf("--offline-timeout (%s) cannot exceed --timeout (%s)", upgradeNodeOfflineTimeout, upgradeNodeTimeout), "Set --offline-timeout to a value that is not more than --timeout.", nil)
@@ -638,7 +642,7 @@ func init() {
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeAddr, "node", "", "Node IP address to upgrade. Required.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeImage, "image", "", "Talos image to upgrade to. Required.")
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m.")
-	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
+	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m, or the value of --timeout when only --timeout is set.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
 	upgradeNodeCmd.Flags().BoolVar(&upgradeNodeSkipIfCurrent, "skip-if-current", false, "Exit 0 without upgrading when the node already runs the image version. If the version cannot be read, upgrade as usual.")
 	_ = upgradeNodeCmd.MarkFlagRequired("node")

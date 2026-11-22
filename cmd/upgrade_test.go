@@ -1562,6 +1562,24 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("OfflineTimeoutFollowsExplicitOverallTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "15m"})
+
+		_ = cliCmd.Execute()
+
+		if *cliCmd.UpgradeNodeOfflineTimeout != 15*time.Minute {
+			t.Errorf("Expected offline timeout 15m, got %v", *cliCmd.UpgradeNodeOfflineTimeout)
+		}
+	})
+
 	t.Run("UsesProvidedOfflineTimeout", func(t *testing.T) {
 		setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()

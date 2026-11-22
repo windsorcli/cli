@@ -15,7 +15,7 @@ Send an upgrade request to a single Talos node, wait for it to reboot, then veri
 |------|---------|-------------|
 | `--image` | `""` | Talos image to upgrade to. Required. |
 | `--node` | `""` | Node IP address to upgrade. Required. |
-| `--offline-timeout` | `0s` | Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m. |
+| `--offline-timeout` | `0s` | Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m, or the value of --timeout when only --timeout is set. |
 | `--reboot-mode` | `default` | Reboot mode: "default" (kexec, fast) or "powercycle" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization). |
 | `--skip-if-current` | `false` | Exit 0 without upgrading when the node already runs the image version. If the version cannot be read, upgrade as usual. |
 | `--timeout` | `0s` | Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m. |
