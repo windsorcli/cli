@@ -145,6 +145,24 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 	return i.applyDirect(ctx, nonBackendBP, onApply...)
 }
 
+// backendHoldsState reports whether the configured remote backend holds state with resources for
+// every backend component. It returns false when a probe fails, because a missing bucket, a missing
+// cluster, and a credential error all fail the probe the same way; the pivot then runs as it does
+// for a new context. A component with no remote state, or with local state only, also returns
+// false. Call it before any backend override.
+func (i *Provisioner) backendHoldsState(blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent) bool {
+	for _, c := range backendComponents {
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
+		}
+		hasRemote, err := i.HasRemoteState(blueprint, c.GetID())
+		if err != nil || !hasRemote {
+			return false
+		}
+	}
+	return true
+}
+
 // withBackendOverride sets terraform.backend.type to "local" while fn runs, as withBackendType describes.
 func (i *Provisioner) withBackendOverride(ctx context.Context, opLabel string, fn func() error) error {
 	return i.withBackendType(ctx, "local", opLabel, fn)
