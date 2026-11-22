@@ -400,8 +400,9 @@ func TestProvisioner_Up_BackendMoveMismatchReport(t *testing.T) {
 		{"CopyHasLowerSerial", func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
 			c := *s
 			c.Serial--
+			c.Digest = "d-other"
 			return &c
-		}, "kubernetes: lineage a, serial 4, 3 resources, content d-a"},
+		}, "kubernetes: lineage a, serial 4, 3 resources, content d-other"},
 		{"CopyHasOtherLineage", func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
 			c := *s
 			c.Lineage, c.Digest = "b", "d-b"
@@ -451,6 +452,53 @@ func TestProvisioner_Up_BackendMoveNewLineage(t *testing.T) {
 	if f.local["backend"] != nil {
 		t.Error("Expected the local file to be removed")
 	}
+}
+
+func TestProvisioner_Up_BackendMoveLowerSerial(t *testing.T) {
+	t.Run("PassesWhenTheContentMatches", func(t *testing.T) {
+		// Given a copy with the same lineage and content but a lower serial, as terraform leaves a destination that already holds the content
+		f := setupMoveFixture(t, "gcs")
+		f.pointers["backend"], f.local["backend"] = "local", snapshot("a")
+		f.copyFn = func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
+			c := *s
+			c.Serial -= 2
+			return &c
+		}
+
+		// When Up is called
+		_, err := f.prov.Up(context.Background(), componentsBlueprint("backend"))
+
+		// Then the move passes and removes the local file
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if f.local["backend"] != nil {
+			t.Error("Expected the local file to be removed")
+		}
+	})
+
+	t.Run("FailsWhenTheContentDiffers", func(t *testing.T) {
+		// Given a copy with the same lineage, a lower serial, and other content
+		f := setupMoveFixture(t, "gcs")
+		f.pointers["backend"], f.local["backend"] = "local", snapshot("a")
+		f.copyFn = func(s *terraforminfra.StateSnapshot) *terraforminfra.StateSnapshot {
+			c := *s
+			c.Serial -= 2
+			c.Digest = "d-other"
+			return &c
+		}
+
+		// When Up is called
+		_, err := f.prov.Up(context.Background(), componentsBlueprint("backend"))
+
+		// Then the move fails and keeps the local file
+		if err == nil || !strings.Contains(err.Error(), "does not match") {
+			t.Fatalf("Expected a mismatch error, got %v", err)
+		}
+		if f.local["backend"] == nil {
+			t.Error("Expected the local file to stay")
+		}
+	})
 }
 
 func TestProvisioner_Apply_BackendMove(t *testing.T) {

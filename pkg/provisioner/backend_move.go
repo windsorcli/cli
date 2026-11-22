@@ -370,17 +370,17 @@ func (i *Provisioner) planComponentInStateBackend(componentID string, fn func() 
 // Helpers
 // =============================================================================
 
-// stateCopyMatches reports whether copied is a full copy of source. A copy with the same lineage must
-// have the same resource count and a serial no lower than the source. Terraform can raise the serial
-// by one when it writes over older state in the destination. A copy with another lineage must have the
-// same resource count and the same content digest. Terraform gives a copy a new lineage and serial 1
-// when the destination holds no state object, as the s3 backend does for a new key.
+// stateCopyMatches reports whether copied is a full copy of source. The resource count must match. A
+// copy with the same lineage and a serial no lower than the source matches. Any other copy must have
+// the same content digest. Terraform leaves the destination unchanged, with its own serial and
+// lineage, when the destination already holds the same content. Terraform gives a copy a new lineage
+// and serial 1 when the destination holds no state object, as the s3 backend does for a new key.
 func stateCopyMatches(source, copied *terraforminfra.StateSnapshot) bool {
 	if source == nil || copied == nil || copied.Resources != source.Resources {
 		return false
 	}
-	if copied.Lineage == source.Lineage {
-		return copied.Serial >= source.Serial
+	if copied.Lineage == source.Lineage && copied.Serial >= source.Serial {
+		return true
 	}
 	return source.Digest != "" && copied.Digest == source.Digest
 }
