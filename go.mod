@@ -16,7 +16,6 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gofrs/flock v0.13.2
 	github.com/google/go-containerregistry v0.22.1
-	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/package-url/packageurl-go v0.1.7

@@ -1047,7 +1047,7 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 			switch root {
 			case filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template"):
 				fn(filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template"), &mockFileInfo{name: "_template", isDir: true}, nil)
-				fn(filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template/test.jsonnet"), &mockFileInfo{name: "test.jsonnet", isDir: false}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template/test.yaml"), &mockFileInfo{name: "test.yaml", isDir: false}, nil)
 			case filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"):
 				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"), &mockFileInfo{name: "kustomize", isDir: true}, nil)
 				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize/kustomization.yaml"), &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)

@@ -116,7 +116,7 @@ func (c *DefaultTraceCollector) addValueRefs(usage *facetValueUsage, origin stri
 	case string:
 		refs, ok := exprScopeRefs(v)
 		if !ok && usage.opaque == "" {
-			usage.opaque = fmt.Sprintf("An expression in %s does not parse or calls jsonnet(), so the trace cannot resolve it and the artifact tags of all facets stay.", origin)
+			usage.opaque = fmt.Sprintf("An expression in %s does not parse, so the trace cannot resolve it and the artifact tags of all facets stay.", origin)
 		}
 		for _, ref := range refs {
 			c.addRef(usage, ref)
