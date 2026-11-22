@@ -117,6 +117,38 @@ addon-omni           (manager)
 Extending a blueprint now means composing after it, with no reserved
 ordinal band to memorize and nothing for a new upstream layer to break.
 
+## Config block scope
+
+Each blueprint owns the config blocks that its facets define. Windsor
+puts every block name into one of three groups:
+
+| Group | Declared in | Facets of other blueprints |
+|---|---|---|
+| Schema value | the `schema.yaml` of any blueprint | can read and write it |
+| Export | `exports:` in the owner's `blueprint.yaml` | can read it, cannot write it |
+| Private | neither | cannot read or write it |
+
+An operator sets only schema values. A blueprint exports a value that
+it computes, such as an issuer URL, so that the value is shared without
+becoming an operator input:
+
+```yaml
+# core: contexts/_template/blueprint.yaml
+exports:
+  - identity_effective
+```
+
+Windsor checks the facet text before composition. Composition stops
+when one of these is true:
+
+- A facet reads or writes a private block of another blueprint.
+- A facet writes an exported block of another blueprint.
+- Two blueprints define the same block name, and the schema does not
+  declare it.
+- A blueprint exports a name that none of its facets define.
+
+The error names the facet, the block, and the blueprint that owns it.
+
 ## Common confusions
 
 **"I set a lower ordinal so my facet runs first."** Ordinal only orders
@@ -129,7 +161,8 @@ ordering between them comes from depth.
 
 **"I need to feed a value into a source's facets."** Set it in context
 configuration rather than reaching backwards with an ordinal. Context
-values are in scope for every facet regardless of depth.
+values are in scope for every facet regardless of depth. A facet can
+also write a schema value that the source reads.
 
 **"Single-source projects behave differently now."** They do not. With
 no referencing blueprint every component sits at depth 0, so the depth

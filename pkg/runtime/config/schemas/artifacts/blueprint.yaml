@@ -820,6 +820,17 @@ properties:
       raw when/text templates through composition; GenerateResolved evaluates
       each against composed scope, keeping only when-true entries with
       interpolated text for the command to print at the end of a run.
+  exports:
+    type: array
+    items:
+      type: string
+    description: |
+      Config block names that facets of other blueprints can read. A facet
+      of this blueprint must define each name. Facets of other blueprints
+      cannot write an exported block. Each config block that the schema does
+      not declare and that this list does not name is private to this
+      blueprint. Windsor stops composition when a facet of another blueprint
+      reads or writes a private block.
 $defs:
   reference:
     type: object

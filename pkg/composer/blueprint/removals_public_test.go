@@ -375,10 +375,11 @@ func TestLoadBlueprint_EntryOrdinalInADeeperSource(t *testing.T) {
 	})
 
 	t.Run("KeepsAConfigBlockOrdinalAboveTheFacetsOfAShallowerSource", func(t *testing.T) {
-		// Given a core facet at ordinal 400 that sets config block size to 1, and a template facet
+		// Given a core facet at ordinal 400 that sets the schema value size to 1, and a template facet
 		// whose block ordinal 300 sets size to 2 and passes size to a terraform input
 		f := newFixture(t)
 		f.withCoreSource(t)
+		f.write(t, "contexts/_template/schema.yaml", "$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties:\n  size:\n    type: integer\n")
 		f.publishCore(t, "", map[string]string{"size": "ordinal: 400\nconfig:\n- name: size\n  value: 1\n"})
 		f.facet(t, "cluster", "ordinal: 100\nconfig:\n- name: size\n  ordinal: 300\n  value: 2\nterraform:\n- path: cluster\n  inputs:\n    size: ${size}\n")
 

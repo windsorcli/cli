@@ -612,3 +612,73 @@ func TestShowBlueprint_FacetComponentRequires_ComponentExcludedSkipsRequires(t *
 		t.Errorf("expected kind Blueprint, got %v", bp["kind"])
 	}
 }
+
+// prepareScopeFixture copies the facet-scope-across-sources fixture and seeds its core source. The core
+// source defines the lb_effective config block and lists exports in its blueprint.yaml. It runs windsor
+// init and returns the directory and an environment that selects the local context.
+func prepareScopeFixture(t *testing.T, exports string) (string, []string) {
+	t.Helper()
+	dir, env := helpers.CopyFixtureOnly(t, "facet-scope-across-sources")
+	seedSourceArtifact(t, dir, "core", "v0.1.0", map[string]string{
+		"metadata.yaml": "name: core\nversion: v0.1.0\n",
+		"_template/blueprint.yaml": "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: core\n" +
+			exports,
+		"terraform/cluster/main.tf": "",
+		"_template/facets/lb.yaml": "kind: Facet\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: lb\n" +
+			"config:\n- name: lb_effective\n  value:\n    mode: nodeport\n" +
+			"terraform:\n- path: cluster\n  inputs:\n    size: 3\n",
+	})
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("windsor init: %v\nstderr: %s", err, stderr)
+	}
+	return dir, append(env, "WINDSOR_CONTEXT=local")
+}
+
+// A facet of the consuming blueprint cannot read a config block that the core source keeps private.
+// Composition fails, and the error names the facet, the block, and both blueprints.
+func TestShowBlueprint_RejectsReadOfAPrivateSourceConfigBlock(t *testing.T) {
+	t.Parallel()
+	dir, env := prepareScopeFixture(t, "")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err == nil {
+		t.Fatal("expected show blueprint to fail")
+	}
+	want := `facet "lb-consumer" in blueprint "consumer" reads config block "lb_effective", which blueprint "core" owns`
+	if !strings.Contains(string(stderr), want) {
+		t.Errorf("expected stderr to contain %q, got:\n%s", want, stderr)
+	}
+	if !strings.Contains(string(stderr), `Add "lb_effective" to exports:`) {
+		t.Errorf("expected stderr to tell the author how to export the block, got:\n%s", stderr)
+	}
+}
+
+// A facet of the consuming blueprint reads a config block that the core source lists in exports:.
+func TestShowBlueprint_ReadsAnExportedSourceConfigBlock(t *testing.T) {
+	t.Parallel()
+	dir, env := prepareScopeFixture(t, "exports:\n- lb_effective\n")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	var bp struct {
+		Terraform []struct {
+			Path   string         `yaml:"path"`
+			Inputs map[string]any `yaml:"inputs"`
+		} `yaml:"terraform"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+	for _, c := range bp.Terraform {
+		if c.Path == "cluster" {
+			if c.Inputs["lb_mode"] != "nodeport" {
+				t.Errorf("expected cluster input lb_mode nodeport, got %v", c.Inputs["lb_mode"])
+			}
+			return
+		}
+	}
+	t.Fatalf("expected terraform component cluster\nstdout: %s", stdout)
+}
