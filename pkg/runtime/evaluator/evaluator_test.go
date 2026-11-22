@@ -3,8 +3,6 @@ package evaluator_test
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -305,58 +303,6 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}
 		if result != false {
 			t.Errorf("Expected result to be false, got %v", result)
-		}
-	})
-}
-
-func TestExpressionEvaluator_buildContextMap(t *testing.T) {
-	t.Run("BuildsContextMapWithName", func(t *testing.T) {
-		// Given an evaluator with config handler that returns context
-		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
-		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
-		mockHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		jsonnetContent := `{
-			hasContext: std.extVar("context") != null,
-			result: "success"
-		}`
-		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
-
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet that uses context
-		result, err := subject.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then context should be available
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["hasContext"] != true {
-			t.Errorf("Expected result.hasContext to be true, got %v", resultMap["hasContext"])
-		}
-	})
-
-	t.Run("BuildsContextMapWithContextExtVar", func(t *testing.T) {
-		subject, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		jsonnetContent := `std.extVar("context")`
-		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
-
-		facetPath := filepath.Join(tmpDir, "feature.yaml")
-
-		_, err := subject.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
 		}
 	})
 }

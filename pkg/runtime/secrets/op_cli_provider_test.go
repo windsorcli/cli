@@ -1,6 +1,7 @@
 package secrets_test
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -63,8 +64,8 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		p.Shims().Command = func(name string, args ...string) *exec.Cmd {
 			return &exec.Cmd{}
 		}
-		p.Shims().CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
-			return []byte("supersecret"), nil
+		p.Shims().CmdOutput = func(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
+			return []byte("supersecret"), nil, nil
 		}
 
 		value, handled, err := p.Resolve(secrets.SecretRef{Vault: "my-vault", Item: "myitem", Field: "password"})
@@ -80,8 +81,8 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		p.Shims().Command = func(name string, args ...string) *exec.Cmd {
 			return &exec.Cmd{}
 		}
-		p.Shims().CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
-			return nil, fmt.Errorf("op command failed")
+		p.Shims().CmdOutput = func(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
+			return nil, nil, fmt.Errorf("op command failed")
 		}
 
 		_, handled, err := p.Resolve(secrets.SecretRef{Vault: "my-vault", Item: "item", Field: "password"})
@@ -106,8 +107,8 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 			capturedArgs = args
 			return &exec.Cmd{}
 		}
-		p.Shims().CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
-			return []byte("value"), nil
+		p.Shims().CmdOutput = func(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
+			return []byte("value"), nil, nil
 		}
 
 		if _, _, err := p.Resolve(secrets.SecretRef{Vault: "my-vault", Item: "--reveal", Field: "field"}); err != nil {
@@ -124,8 +125,8 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		p.SetUnlocked(true)
 
 		p.Shims().Command = func(name string, args ...string) *exec.Cmd { return &exec.Cmd{} }
-		p.Shims().CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
-			return []byte("  secret-value  \n"), nil
+		p.Shims().CmdOutput = func(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
+			return []byte("  secret-value  \n"), nil, nil
 		}
 
 		value, _, err := p.Resolve(secrets.SecretRef{Vault: "my-vault", Item: "item", Field: "field"})

@@ -1,5 +1,5 @@
 // The built-in functions are the expression helpers that every evaluation registers.
-// It provides string(), jsonnet(), file(), env(), yaml(), yamlString(), jsonString(), and split().
+// It provides string(), file(), env(), yaml(), yamlString(), jsonString(), and split().
 // Each factory returns one expr option that checks the argument count and types.
 // The CIDR functions are in cidr.go.
 
@@ -44,24 +44,6 @@ func (e *DefaultExpressionEvaluator) stringFunction() expr.Option {
 			}
 		},
 		new(func(any) string),
-	)
-}
-
-// jsonnetFunction returns the jsonnet(path) helper. The Jsonnet file gets config as std.extVar("context").
-func (e *DefaultExpressionEvaluator) jsonnetFunction(config map[string]any, facetPath string) expr.Option {
-	return expr.Function(
-		"jsonnet",
-		func(params ...any) (any, error) {
-			if len(params) != 1 {
-				return nil, fmt.Errorf("jsonnet() requires exactly 1 argument, got %d", len(params))
-			}
-			path, ok := params[0].(string)
-			if !ok {
-				return nil, fmt.Errorf("jsonnet() path must be a string, got %T", params[0])
-			}
-			return e.evaluateJsonnetFunction(path, config, facetPath)
-		},
-		new(func(string) any),
 	)
 }
 

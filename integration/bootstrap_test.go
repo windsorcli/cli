@@ -130,7 +130,7 @@ func TestBootstrap_DanceIsScopedToBackendComponents(t *testing.T) {
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=s3"}, env); err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
-	env = append(env, "WINDSOR_CONTEXT=local")
+	env = append(helpers.WithFakeDocker(t, env), "WINDSOR_CONTEXT=local")
 
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes"}, env)
 	if err == nil {
@@ -167,7 +167,7 @@ func TestBootstrap_RefusesKubernetesBackendWithoutDeclaredBackendFromZero(t *tes
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=kubernetes"}, env); err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
-	env = append(env, "WINDSOR_CONTEXT=local")
+	env = append(helpers.WithFakeDocker(t, env), "WINDSOR_CONTEXT=local")
 
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes"}, env)
 	if err == nil {

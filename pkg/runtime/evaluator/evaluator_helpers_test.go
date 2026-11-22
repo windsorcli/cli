@@ -14,52 +14,6 @@ import (
 // Helper Function Tests
 // =============================================================================
 
-func TestJsonnetHelper(t *testing.T) {
-	t.Run("JsonnetFunctionWithValidPath", func(t *testing.T) {
-		subject, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		facetPath := filepath.Join(tmpDir, "facet.yaml")
-
-		result, err := subject.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("JsonnetFunctionWithInvalidArguments", func(t *testing.T) {
-		subject, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := subject.Evaluate(`${jsonnet("path1", "path2")}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for invalid arguments, got nil")
-		}
-	})
-
-	t.Run("JsonnetFunctionWithNonStringArgument", func(t *testing.T) {
-		subject, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := subject.Evaluate(`${jsonnet(42)}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for non-string argument, got nil")
-		}
-	})
-}
-
 func TestFileHelper(t *testing.T) {
 	t.Run("FileFunctionWithValidPath", func(t *testing.T) {
 		subject, _, _, _ := setupEvaluatorTest(t)

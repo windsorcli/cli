@@ -189,6 +189,70 @@ func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 	}
 }
 
+// TestInit_IncusPlatformWithoutVmDriverSetsNoWorkstation verifies that --platform incus alone sets no workstation runtime.
+func TestInit_IncusPlatformWithoutVmDriverSetsNoWorkstation(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--platform", "incus"}, env)
+	if err != nil {
+		t.Fatalf("init home --platform incus: %v\nstderr: %s", err, stderr)
+	}
+
+	for _, path := range []string{
+		filepath.Join(dir, ".windsor", "contexts", "home", "workstation.yaml"),
+		filepath.Join(dir, "contexts", "home", "values.yaml"),
+	} {
+		if !hasFile(path) {
+			continue
+		}
+		if wsRuntime, ok := getPathValue(readYAMLFile(t, path), "workstation", "runtime"); ok {
+			t.Errorf("expected no workstation.runtime in %s, got %v", path, wsRuntime)
+		}
+	}
+}
+
+// TestInit_DevIncusPlatformDefaultsToColima verifies that a local dev context on the incus platform gets the colima runtime without --vm-driver.
+func TestInit_DevIncusPlatformDefaultsToColima(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-incus", "--platform", "incus"}, env)
+	if err != nil {
+		t.Fatalf("init local-incus --platform incus: %v\nstderr: %s", err, stderr)
+	}
+
+	statePath := filepath.Join(dir, ".windsor", "contexts", "local-incus", "workstation.yaml")
+	if !hasFile(statePath) {
+		t.Fatalf("expected workstation.yaml at %s", statePath)
+	}
+	if wsRuntime, ok := getPathValue(readYAMLFile(t, statePath), "workstation", "runtime"); !ok || wsRuntime != "colima" {
+		t.Errorf("expected workstation.runtime=colima, got %v", wsRuntime)
+	}
+}
+
+// TestInit_IncusPlatformWithColimaIncusSetsWorkstation verifies that --vm-driver colima-incus still sets the colima runtime.
+func TestInit_IncusPlatformWithColimaIncusSetsWorkstation(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--platform", "incus", "--vm-driver", "colima-incus"}, env)
+	if err != nil {
+		t.Fatalf("init home --platform incus --vm-driver colima-incus: %v\nstderr: %s", err, stderr)
+	}
+
+	statePath := filepath.Join(dir, ".windsor", "contexts", "home", "workstation.yaml")
+	if !hasFile(statePath) {
+		t.Fatalf("expected workstation.yaml at %s", statePath)
+	}
+	if wsRuntime, ok := getPathValue(readYAMLFile(t, statePath), "workstation", "runtime"); !ok || wsRuntime != "colima" {
+		t.Errorf("expected workstation.runtime=colima, got %v", wsRuntime)
+	}
+}
+
 // TestInit_PersistsConfigWhenRequirementUnmet verifies that a failed init (an unmet facet
 // requirement surfaced during composition) still writes contexts/<name>/values.yaml carrying the
 // platform and the --set values, so the operator can add the missing value and re-run instead of
@@ -742,6 +806,36 @@ func TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone(t *testing.T) {
 	}
 	if string(rootAfter) != userRootContent {
 		t.Errorf("project-root .gitignore was modified; before=%q after=%q", userRootContent, string(rootAfter))
+	}
+}
+
+// TestInit_WritesGitignoreOnlyIntoCurrentContext verifies that `windsor init`
+// writes the context .gitignore only into the context it acts on. Other folders
+// under contexts/, such as a folder of Flux manifests, stay unchanged.
+func TestInit_WritesGitignoreOnlyIntoCurrentContext(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	manifestDir := filepath.Join(dir, "contexts", "loft", "manager", "flux-system")
+	if err := os.MkdirAll(manifestDir, 0750); err != nil {
+		t.Fatalf("expected no error creating %s, got %v", manifestDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "kustomization.yaml"), []byte("resources: []\n"), 0644); err != nil {
+		t.Fatalf("expected no error seeding manifest, got %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "home", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("init home: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "contexts", "home", ".gitignore")); err != nil {
+		t.Errorf("expected contexts/home/.gitignore to exist, got %v", err)
+	}
+	loftIgnore := filepath.Join(dir, "contexts", "loft", ".gitignore")
+	if _, err := os.Stat(loftIgnore); !os.IsNotExist(err) {
+		t.Errorf("expected contexts/loft/.gitignore to not exist, got stat err: %v", err)
 	}
 }
 

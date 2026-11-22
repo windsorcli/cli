@@ -19,7 +19,7 @@ Windsor connects through the endpoints in TALOSCONFIG and sends each request to 
 | `--nodes` | `[]` | Talos node addresses to check. Windsor reaches them through the TALOSCONFIG endpoints. |
 | `--ready` | `false` | Check Kubernetes node readiness in addition to Talos. |
 | `--skip-services` | `[]` | Service names to ignore (e.g., dashboard). |
-| `--timeout` | `0s` | Maximum time to wait for nodes to be ready. Default 5m. |
+| `--timeout` | `0s` | Maximum time to wait for each check to pass. Default 5m. |
 | `--version` | `""` | Expected Talos version. Reports a mismatch if set. |
 | `--wait-for-reboot` | `false` | Poll until the Talos API goes offline (reboot started), then wait for it to come back. |
 

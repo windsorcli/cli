@@ -15,7 +15,6 @@ func resetGlobalClient() {
 	defer clientLock.Unlock()
 	globalClient = nil
 	globalClientToken = ""
-	globalCtx = nil
 }
 
 // =============================================================================

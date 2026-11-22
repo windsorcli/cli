@@ -426,6 +426,16 @@ func TestCommandPreflight(t *testing.T) {
 	})
 }
 
+// fakeReachability is a secrets provider that reports a fixed result for its 1Password account check.
+type fakeReachability struct {
+	secrets.MockProvider
+	account string
+	err     error
+}
+
+func (f *fakeReachability) Account() string { return f.account }
+func (f *fakeReachability) Check() error    { return f.err }
+
 func TestRequireCloudAuth(t *testing.T) {
 	t.Run("PrintsHintToStderrAndSilencesCobraOnFailure", func(t *testing.T) {
 		// Given CheckAuth returns the per-platform hint as the error (the awsAuthHint shape:
@@ -488,6 +498,34 @@ func TestRequireCloudAuth(t *testing.T) {
 		want := "The AWS SSO session for profile \"test-context\" has likely expired.\nRun 'aws sso login --profile test-context'.\n"
 		if stderr.String() != want {
 			t.Errorf("Expected the message and the remediation, got: %q", stderr.String())
+		}
+	})
+
+	t.Run("PrintsEveryUnreachable1PasswordAccountBeforeAnyApply", func(t *testing.T) {
+		// Given cloud auth passes and two 1Password accounts fail their reachability check
+		mocks := setupMocks(t)
+		mocks.Runtime.Resolver = secrets.NewResolver([]secrets.Provider{
+			&fakeReachability{account: "a.1password.com", err: werror.New("1Password isn't signed in for a.1password.com.", "Run `op signin --account a.1password.com`.", nil)},
+			&fakeReachability{account: "b.1password.com", err: werror.New("Timed out for b.1password.com.", "Run `op whoami --account b.1password.com`.", nil)},
+		}, nil)
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		leaf := &cobra.Command{Use: "up"}
+		leaf.SetContext(context.Background())
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		// When requireCloudAuth runs
+		err := requireCloudAuth(leaf, proj)
+
+		// Then it fails and stderr shows each account with its fix
+		if err == nil {
+			t.Fatal("Expected an error for unreachable accounts, got nil")
+		}
+		for _, want := range []string{"isn't signed in for a.1password.com", "op signin --account a.1password.com", "Timed out for b.1password.com", "op whoami --account b.1password.com"} {
+			if !strings.Contains(stderr.String(), want) {
+				t.Errorf("Expected stderr to contain %q, got: %q", want, stderr.String())
+			}
 		}
 	})
 

@@ -768,7 +768,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("DefaultsWorkstationRuntimeWhenPlatformIsWorkstationViaFlagOverride", func(t *testing.T) {
-		for _, platform := range []string{"docker", "incus"} {
+		for _, platform := range []string{"docker"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupRuntimeMocks(t)
 				rt := mocks.Runtime
@@ -802,7 +802,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("DefaultsWorkstationRuntimeWhenPlatformIsWorkstationViaSavedConfig", func(t *testing.T) {
-		for _, platform := range []string{"docker", "incus"} {
+		for _, platform := range []string{"docker"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupRuntimeMocks(t)
 				rt := mocks.Runtime
@@ -839,7 +839,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("DefaultsWorkstationRuntimeForFlagOverridePlatformOutsideDevMode", func(t *testing.T) {
-		for _, platform := range []string{"docker", "incus"} {
+		for _, platform := range []string{"docker"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupRuntimeMocks(t)
 				rt := mocks.Runtime
@@ -871,6 +871,90 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					t.Errorf("Expected workstation.runtime to be set for platform=%q outside dev mode, got setCalls=%v", platform, setCalls)
 				}
 			})
+		}
+	})
+
+	t.Run("DefaultsColimaRuntimeForIncusPlatformInDevMode", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			overrides []map[string]any
+			saved     string
+		}{
+			{"FlagOverride", []map[string]any{{"platform": "incus"}}, ""},
+			{"SavedConfig", nil, "incus"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// Given a dev-mode context on the incus platform with no workstation runtime
+				mocks := setupRuntimeMocks(t)
+				rt := mocks.Runtime
+				rt.ContextName = "local"
+				rt.Shims.Goos = func() string { return "darwin" }
+
+				mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+				mockConfigHandler.IsLoadedFunc = func() bool { return false }
+				mockConfigHandler.IsDevModeFunc = func(_ string) bool { return true }
+				mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+					if key == "platform" {
+						return tc.saved
+					}
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
+
+				setCalls := make(map[string]any)
+				mockConfigHandler.SetFunc = func(key string, value any) error {
+					setCalls[key] = value
+					return nil
+				}
+
+				// When config defaults are applied
+				if err := rt.ApplyConfigDefaults(tc.overrides...); err != nil {
+					t.Fatalf("Expected no error, got: %v", err)
+				}
+
+				// Then the runtime defaults to colima
+				if setCalls["workstation.runtime"] != "colima" {
+					t.Errorf("Expected workstation.runtime=colima, got setCalls=%v", setCalls)
+				}
+			})
+		}
+	})
+
+	t.Run("SkipsWorkstationRuntimeDefaultForIncusFlagOverrideOutsideDevMode", func(t *testing.T) {
+		// Given a non-dev context and --platform incus without --vm-driver
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "home"
+		rt.Shims.Goos = func() string { return "darwin" }
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.IsDevModeFunc = func(_ string) bool { return false }
+		mockConfigHandler.GetStringFunc = func(_ string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
+
+		setCalls := make(map[string]any)
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		// When config defaults are applied
+		if err := rt.ApplyConfigDefaults(map[string]any{"platform": "incus"}); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then no workstation runtime is set
+		if _, ok := setCalls["workstation.runtime"]; ok {
+			t.Errorf("Expected workstation.runtime NOT to be set for platform=incus, got setCalls=%v", setCalls)
 		}
 	})
 

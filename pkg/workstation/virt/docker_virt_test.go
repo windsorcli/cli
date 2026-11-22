@@ -62,9 +62,12 @@ func TestNewDockerVirt(t *testing.T) {
 // =============================================================================
 
 func TestDockerVirt_Up(t *testing.T) {
-	t.Run("SucceedsWithNoError", func(t *testing.T) {
-		// Given a DockerVirt
+	t.Run("SucceedsWhenDaemonAnswers", func(t *testing.T) {
+		// Given a daemon that answers docker version
 		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "27.0.0", nil
+		}
 
 		// When calling Up
 		err := dockerVirt.Up(f.ctx)
@@ -72,6 +75,60 @@ func TestDockerVirt_Up(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWithEndpointFromDockerHost", func(t *testing.T) {
+		// Given a daemon that does not answer and DOCKER_HOST set
+		f, dockerVirt := setupDockerVirt(t)
+		f.shims.Getenv = func(key string) string { return "unix:///home/u/.docker/run/docker.sock" }
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("cannot connect")
+		}
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then one error names the endpoint and the fix
+		want := "Docker isn't running (unix:///home/u/.docker/run/docker.sock). Start Docker and run windsor up again"
+		if err == nil || err.Error() != want {
+			t.Errorf("Expected %q, got %v", want, err)
+		}
+	})
+
+	t.Run("FailsWithEndpointFromDockerContext", func(t *testing.T) {
+		// Given a daemon that does not answer and an endpoint in the docker context
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "context" {
+				return "unix:///ctx.sock\n", nil
+			}
+			return "", fmt.Errorf("cannot connect")
+		}
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then the error names the context endpoint
+		if err == nil || !strings.Contains(err.Error(), "(unix:///ctx.sock)") {
+			t.Errorf("Expected context endpoint in error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWithoutEndpointWhenUnknown", func(t *testing.T) {
+		// Given a daemon that does not answer and no known endpoint
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("cannot connect")
+		}
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then the error has no endpoint
+		want := "Docker isn't running. Start Docker and run windsor up again"
+		if err == nil || err.Error() != want {
+			t.Errorf("Expected %q, got %v", want, err)
 		}
 	})
 }

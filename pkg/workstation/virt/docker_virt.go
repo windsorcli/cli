@@ -53,8 +53,12 @@ func NewDockerVirt(rt *runtime.Runtime) *DockerVirt {
 // Public Methods
 // =============================================================================
 
-// Up does nothing, because Terraform or compose start the containers.
+// Up checks that the Docker daemon answers, because Terraform or compose start the containers.
+// It returns one error that names the endpoint when the daemon does not answer.
 func (v *DockerVirt) Up(ctx context.Context) error {
+	if _, err := v.shell.ExecSilent("docker", "version", "--format", "{{.Server.Version}}"); err != nil {
+		return fmt.Errorf("Docker isn't running%s. Start Docker and run windsor up again", v.daemonEndpointHint())
+	}
 	return nil
 }
 
@@ -96,6 +100,23 @@ func (v *DockerVirt) daemonSocketMissing() bool {
 	}
 	_, err := v.shims.Stat(path)
 	return errors.Is(err, fs.ErrNotExist)
+}
+
+// daemonEndpointHint returns the Docker endpoint in parentheses with a leading space.
+// It reads DOCKER_HOST first, then the endpoint of the current docker context.
+// It returns an empty string when neither names an endpoint.
+func (v *DockerVirt) daemonEndpointHint() string {
+	host := strings.TrimSpace(v.shims.Getenv("DOCKER_HOST"))
+	if host == "" {
+		out, err := v.shell.ExecSilent("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}")
+		if err == nil {
+			host = strings.TrimSpace(out)
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return " (" + host + ")"
 }
 
 // cleanProjectContainers stops and removes each container with the compose project label, also a container that never started.

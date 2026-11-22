@@ -38,7 +38,6 @@ type Composer struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	projectRoot   string
-	basePath      string
 	configRoot    string
 	templateRoot  string
 	shims         *Shims
@@ -77,7 +76,6 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		projectRoot:   rt.ProjectRoot,
-		basePath:      rt.Base(),
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
 		shims:         NewShims(),
@@ -251,8 +249,9 @@ const windsorMarkerContent = "*\n"
 const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\nsecrets.yaml\nsecrets.yml\n"
 
 // writeLocalGitignores writes a .gitignore file in each Windsor folder, so Windsor does not change the project .gitignore.
-// It creates .windsor/ if necessary. It skips .volumes/ and contexts/ if they do not exist.
-// It does not change an existing .windsor/ or .volumes/ .gitignore, and it merges the entries into each context .gitignore.
+// It creates .windsor/ if necessary. It skips .volumes/ and the current context folder if they do not exist.
+// It writes only into the current context folder, so other folders under contexts/ stay unchanged.
+// It does not change an existing .windsor/ or .volumes/ .gitignore, and it merges the entries into the context .gitignore.
 func (r *Composer) writeLocalGitignores() error {
 	windsorDir := filepath.Join(r.projectRoot, ".windsor")
 	if err := r.shims.MkdirAll(windsorDir, 0750); err != nil {
@@ -271,22 +270,14 @@ func (r *Composer) writeLocalGitignores() error {
 		return werror.Wrap(err, "failed to stat .volumes")
 	}
 
-	contextsDir := filepath.Join(r.basePath, "contexts")
-	entries, err := r.shims.ReadDir(contextsDir)
-	if err != nil {
+	if _, err := r.shims.Stat(r.configRoot); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return werror.Wrap(err, "failed to read contexts directory")
+		return werror.Wrap(err, "failed to stat context directory")
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "_template" {
-			continue
-		}
-		target := filepath.Join(contextsDir, entry.Name(), ".gitignore")
-		if err := r.writeOrMergeContextIgnore(target, contextIgnoreContent); err != nil {
-			return werror.Wrap(err, "failed to write contexts/%s/.gitignore", entry.Name())
-		}
+	if err := r.writeOrMergeContextIgnore(filepath.Join(r.configRoot, ".gitignore"), contextIgnoreContent); err != nil {
+		return werror.Wrap(err, "failed to write %s", filepath.Join(r.configRoot, ".gitignore"))
 	}
 	return nil
 }
@@ -300,7 +291,7 @@ func (r *Composer) writeOrMergeContextIgnore(target, desired string) error {
 		return err
 	}
 
-	// #nosec G304 - target is composed from the project's own contexts/ directory listing, not user-supplied
+	// #nosec G304 - target is the current context folder, not user-supplied
 	existing, err := r.shims.ReadFile(target)
 	if err != nil {
 		return err
@@ -329,7 +320,7 @@ func (r *Composer) writeOrMergeContextIgnore(target, desired string) error {
 	content += missing.String()
 
 	// #nosec G306 G703 - .gitignore files use standard 0644 permissions; target is
-	// composed from the project's own contexts/ directory listing, not user-supplied
+	// the current context folder, not user-supplied
 	return r.shims.WriteFile(target, []byte(content), 0644)
 }
 

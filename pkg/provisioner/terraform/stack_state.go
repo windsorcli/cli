@@ -5,7 +5,10 @@
 package terraform
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,12 +34,15 @@ type tfStateModule struct {
 	ChildModules []tfStateModule   `json:"child_modules"`
 }
 
-// StateSnapshot is the identity and the size of one terraform state. Lineage and Serial come from
-// the state file. Resources counts the resource entries at the top level of the state file.
+// StateSnapshot is the identity, the size, and the content of one terraform state. Lineage and Serial
+// come from the state file. Resources counts the resource entries at the top level of the state file.
+// Digest is a hash of the resources and the outputs. It does not change when terraform gives a copy of
+// the state a new lineage or serial.
 type StateSnapshot struct {
 	Lineage   string
 	Serial    int64
 	Resources int
+	Digest    string
 }
 
 // rawState is the part of a terraform state file that StateSnapshot reads.
@@ -44,6 +50,7 @@ type rawState struct {
 	Lineage   string            `json:"lineage"`
 	Serial    int64             `json:"serial"`
 	Resources []json.RawMessage `json:"resources"`
+	Outputs   json.RawMessage   `json:"outputs"`
 }
 
 // tfState is the minimal shape of `terraform show -json` we need for state emptiness.
@@ -413,11 +420,43 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 // Helpers
 // =============================================================================
 
-// parseStateSnapshot reads the lineage, serial, and resource count of a terraform state file.
+// parseStateSnapshot reads the lineage, serial, resource count, and content digest of a terraform
+// state file.
 func parseStateSnapshot(data []byte) (*StateSnapshot, error) {
 	var state rawState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
-	return &StateSnapshot{Lineage: state.Lineage, Serial: state.Serial, Resources: len(state.Resources)}, nil
+	digest, err := stateDigest(state)
+	if err != nil {
+		return nil, err
+	}
+	return &StateSnapshot{Lineage: state.Lineage, Serial: state.Serial, Resources: len(state.Resources), Digest: digest}, nil
+}
+
+// stateDigest returns the SHA-256 of the resources and the outputs of a state in canonical JSON, so
+// that key order and white space do not change it.
+func stateDigest(state rawState) (string, error) {
+	content := map[string]any{"resources": state.Resources, "outputs": state.Outputs}
+	canonical, err := canonicalJSON(content)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// canonicalJSON returns value as JSON with sorted object keys and exact numbers.
+func canonicalJSON(value any) ([]byte, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var generic any
+	if err := decoder.Decode(&generic); err != nil {
+		return nil, err
+	}
+	return json.Marshal(generic)
 }

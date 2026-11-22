@@ -184,22 +184,40 @@ func prepareProjectSkipValidation(cmd *cobra.Command, reqs tools.Requirements) (
 	return proj, nil
 }
 
-// requireCloudAuth runs the cloud credential preflight for the platform of the current context.
+// requireCloudAuth runs the preflight of a terraform command: cloud credentials for the platform of the
+// current context, then one reachability check for each configured 1Password account.
 // Every command that runs terraform (apply, plan, destroy, up, bootstrap, upgrade) calls it before init and
 // state migration. A command that does not run terraform must not call it. On failure, it prints the
-// CheckAuth message to stderr, then the remediation of its WindsorError when it has one. It silences the
-// cobra "Error:" prefix on the parent commands and returns the error so the process exits non-zero.
+// message to stderr, then the remediation of its WindsorError when it has one. A failure from several
+// accounts prints each one. It silences the cobra "Error:" prefix on the parent commands and returns
+// the error so the process exits non-zero.
 func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
-	if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
-		silenceErrorsOnAncestors(cmd)
-		if we := werror.Find(err); we != nil && we.Remediation != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n%s\n", we.Message, we.Remediation)
-		} else {
-			fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
-		}
-		return err
+	err := proj.Runtime.ToolsManager.CheckAuth()
+	if err == nil && proj.Runtime.Resolver != nil {
+		err = proj.Runtime.Resolver.CheckReachable(cmd.Context())
 	}
-	return nil
+	if err == nil {
+		return nil
+	}
+	silenceErrorsOnAncestors(cmd)
+	printPreflightError(cmd.ErrOrStderr(), err)
+	return err
+}
+
+// printPreflightError writes the message of err and its remediation, when it has one. For an error
+// that joins several errors, it writes each one in turn.
+func printPreflightError(w io.Writer, err error) {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			printPreflightError(w, e)
+		}
+		return
+	}
+	if we := werror.Find(err); we != nil && we.Remediation != "" {
+		fmt.Fprintf(w, "%s\n%s\n", we.Message, we.Remediation)
+	} else {
+		fmt.Fprintln(w, err.Error())
+	}
 }
 
 // renderError writes err to w once, in the format that --format selects. Text output prints the

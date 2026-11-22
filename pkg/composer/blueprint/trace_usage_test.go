@@ -311,21 +311,6 @@ func TestDefaultTraceCollector_UnusedFacetValue(t *testing.T) {
 		}
 	})
 
-	t.Run("KeepsEveryValueWhenAnExpressionCallsJsonnet", func(t *testing.T) {
-		// Given a composed value that a Jsonnet file computes from the whole scope
-		c, path := usageCollector(t)
-		contribute(c, "terraform.cluster/talos.inputs.all", path, "${jsonnet('values.jsonnet')}")
-		c.Finalize(usageBlueprint(), nil, "")
-
-		// When an unread key is checked
-		unused, note := c.UnusedFacetValue(path, usageLine(t, "tag: v9"))
-
-		// Then the value stays and a note tells why
-		if unused || !strings.Contains(note, "jsonnet") {
-			t.Errorf("expected a kept value and a note, got unused=%v note=%q", unused, note)
-		}
-	})
-
 	t.Run("KeepsEveryValueWhenAnExpressionDoesNotParse", func(t *testing.T) {
 		// Given a composed value that does not parse
 		c, path := usageCollector(t)
