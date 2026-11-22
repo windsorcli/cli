@@ -69,7 +69,12 @@ properties:
     description: |
       Named configuration blocks exposed at scope root. Terraform inputs and
       kustomize substitutions reference '<name>' (scalar/list values) or
-      '<name>.<key>' (map values), e.g. 'talos.controlplanes'.
+      '<name>.<key>' (map values), e.g. 'talos.controlplanes'. A block is
+      private to the blueprint whose facets define it, unless the schema
+      declares its name or the blueprint lists it under exports:. Facets
+      of other blueprints can read and write a schema value. They can read
+      an exported block but not write it. They cannot read or write a
+      private block.
     items:
       $ref: '#/$defs/configBlock'
   requires:

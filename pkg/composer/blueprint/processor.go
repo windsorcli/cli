@@ -71,13 +71,14 @@ type sourceRemovals struct {
 }
 
 // SourceFacetSet is one source's contribution to global composition: its name, its dependency depth
-// (deeper/referencing sources override shallower ones), the blueprint to emit its components into, and
-// its facets.
+// (deeper/referencing sources override shallower ones), the blueprint to emit its components into, its
+// facets, and the config block names it exports to other sources.
 type SourceFacetSet struct {
-	Name   string
-	Depth  int
-	Target *blueprintv1alpha1.Blueprint
-	Facets []blueprintv1alpha1.Facet
+	Name    string
+	Depth   int
+	Target  *blueprintv1alpha1.Blueprint
+	Facets  []blueprintv1alpha1.Facet
+	Exports []string
 }
 
 // =============================================================================
@@ -183,11 +184,16 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 // An operator's explicit raw value always wins over a facet's computed value (resolveConfigAndInclusion).
 // Each source's removals also apply to shallower sources (applyRemovalsToShallowerSources).
 // The per-entry ordinals get the same depth offset as the facet ordinals (shiftEntryOrdinals).
-// It returns the resolved global scope.
+// Before resolution, it checks that no facet reads or writes a config block that another source owns
+// (checkSourceScopes). It returns the resolved global scope.
 func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.deferredPaths = make(map[string]bool)
+
+	if err := checkSourceScopes(sources, p.schemaPropertyNames()); err != nil {
+		return nil, err
+	}
 
 	contextScope := p.buildContextScope()
 

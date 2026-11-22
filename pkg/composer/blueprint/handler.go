@@ -667,10 +667,11 @@ func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintL
 	var sourceSets []SourceFacetSet
 	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
 		sourceSets = append(sourceSets, SourceFacetSet{
-			Name:   loaderNames[loader],
-			Depth:  depth,
-			Target: loader.GetBlueprint(),
-			Facets: loader.GetFacets(),
+			Name:    loaderNames[loader],
+			Depth:   depth,
+			Target:  loader.GetBlueprint(),
+			Facets:  loader.GetFacets(),
+			Exports: loader.GetBlueprint().Exports,
 		})
 	}
 	globalScope, err := h.processor.ProcessGlobally(sourceSets)

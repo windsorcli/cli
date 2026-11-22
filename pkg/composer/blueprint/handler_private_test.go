@@ -240,7 +240,7 @@ func TestHandler_processAndCompose(t *testing.T) {
 	})
 
 	t.Run("DownstreamSourceSeesConfigDerivedByUpstreamSource", func(t *testing.T) {
-		// Given a source (core) that derives dns.private_domain, and a second source
+		// Given a source (core) that derives and exports dns.private_domain, and a second source
 		// (consumer) that layers on core and reads that derived value in a substitution
 		mocks := setupHandlerMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -248,7 +248,7 @@ func TestHandler_processAndCompose(t *testing.T) {
 		}
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
-		coreBp := &blueprintv1alpha1.Blueprint{}
+		coreBp := &blueprintv1alpha1.Blueprint{Exports: []string{"dns"}}
 		handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
 			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
 			getSourceNameFunc: func() string { return "core" },
@@ -483,9 +483,10 @@ func TestHandler_processAndCompose(t *testing.T) {
 	})
 }
 
-// TestHandler_CrossSourceConfig pins the cross-source config behaviors: a referencing (consumer)
-// source can override a value an upstream (core) source consumes, activate an upstream capability,
-// disable one, and have upstream derivations recompute — while an explicit operator value still wins.
+// TestHandler_CrossSourceConfig pins the cross-source config behaviors for schema values: a referencing
+// (consumer) source can override a value an upstream (core) source consumes, activate an upstream
+// capability, disable one, and have upstream derivations recompute — while an explicit operator value
+// still wins.
 func TestHandler_CrossSourceConfig(t *testing.T) {
 	t.Run("OverridesUpstreamConsumedValue", func(t *testing.T) {
 		// Given core consumes dns.domain in a kustomization and consumer overrides dns.domain
@@ -825,6 +826,9 @@ func composeCrossSource(t *testing.T, coreFacets, consumerFacets []blueprintv1al
 		return contextValues, nil
 	}
 	mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return contextValues }
+	mocks.ConfigHandler.GetSchemaFunc = func() map[string]any {
+		return map[string]any{"properties": map[string]any{"dns": map[string]any{}, "flags": map[string]any{}}}
+	}
 	handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 	coreBp := &blueprintv1alpha1.Blueprint{}

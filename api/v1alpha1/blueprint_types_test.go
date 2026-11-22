@@ -328,6 +328,20 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 }
 
 func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
+	t.Run("CopiesExports", func(t *testing.T) {
+		// Given a blueprint that exports a config block
+		blueprint := &v1alpha1.Blueprint{Exports: []string{"lb_effective"}}
+
+		// When the blueprint is copied and the copy changes
+		copy := blueprint.DeepCopy()
+		copy.Exports[0] = "changed"
+
+		// Then the original keeps its exports
+		if blueprint.Exports[0] != "lb_effective" {
+			t.Errorf("Expected original exports to stay lb_effective, got %v", blueprint.Exports)
+		}
+	})
+
 	t.Run("CopiesSourceInstallField", func(t *testing.T) {
 		falseVal := false
 		blueprint := &v1alpha1.Blueprint{

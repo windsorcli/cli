@@ -175,6 +175,9 @@ type Blueprint struct {
 
 	// Config maps each facet config block name to its evaluated value.
 	Config map[string]any `yaml:"config,omitempty"`
+
+	// Exports lists the config block names that facets of other blueprints may read but not write.
+	Exports []string `yaml:"exports,omitempty"`
 }
 
 // CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
@@ -639,6 +642,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		ConfigMaps:          configMapsCopy,
 		Messages:            slices.Clone(b.Messages),
 		Config:              deepCopyMapStringAny(b.Config),
+		Exports:             slices.Clone(b.Exports),
 	}
 }
 
