@@ -28,6 +28,9 @@ import (
 // abandonedInventoryGraceChecks is the minimum number of polls for a live entry after its Kustomization disappears.
 const abandonedInventoryGraceChecks = 3
 
+// unreachableNodePodChecks is the number of polls in a row that must find the same stuck pods before the wait fails early.
+const unreachableNodePodChecks = 3
+
 // errUnverifiableInventory reports an entry neither confirmed live nor confirmed gone.
 var errUnverifiableInventory = errors.New("inventory entry cannot be verified")
 
@@ -59,7 +62,8 @@ type liveInventoryEntry struct {
 // =============================================================================
 
 // DeleteKustomization deletes a Kustomization and waits until it disappears. The wait grows to
-// spec.timeout and with the inventory size. After the wait, it checks the last known inventory,
+// spec.timeout and with the inventory size. After the base timeout, the wait fails early when the only
+// pods left in its terminating namespaces are being deleted on nodes that are not Ready. After the wait, it checks the last known inventory,
 // and gives a live entry a few more polls before it reports that entry. The cluster stays up, so
 // an object without a finalizer that is still live also counts as a leftover.
 func (k *BaseKubernetesManager) DeleteKustomization(ctx context.Context, name, namespace string) error {
@@ -107,6 +111,7 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 	var lastReadErr error
 	readFailures := 0
 	helmTimeoutResolved := false
+	unreachablePolls := 0
 	for k.Shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
@@ -125,6 +130,19 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 		readFailures = 0
 		lastObj = obj
 		k.snapshotHelmReleaseInventories(obj, helmInventory)
+
+		if k.Shims.TimeNow().After(start.Add(k.Timing.KustomizationReconcileTimeout)) {
+			entries, _, _ := inventoryEntriesFromObject(obj)
+			if stuck := k.findUnreachableNodePods(entries); stuck != nil {
+				unreachablePolls++
+				if unreachablePolls >= unreachableNodePodChecks {
+					message, hint := stuck.describe()
+					return werror.New(fmt.Sprintf("kustomization %s/%s cannot finish deleting: %s", namespace, name, message), hint, nil)
+				}
+			} else {
+				unreachablePolls = 0
+			}
+		}
 
 		if size := inventorySize(obj); size > 0 {
 			waitFor = extendWaitFor(waitFor, k.kustomizationDeletionTimeout(size))

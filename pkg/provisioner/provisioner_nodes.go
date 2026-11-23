@@ -1,5 +1,6 @@
 // The node methods of the Provisioner upgrade cluster nodes and check their health.
 // It provides UpgradeNode, UpgradeNodes, and CheckNodeHealth, and the NodeHealthCheckOptions type.
+// UpgradeNode also deletes the stale Kubernetes Node object of a node that restarted under a new name.
 
 package provisioner
 
@@ -40,8 +41,10 @@ type NodeHealthCheckOptions struct {
 // Public Methods
 // =============================================================================
 
-// UpgradeNode upgrades one node to image. It records the boot ID, sends the upgrade request, waits
+// UpgradeNode upgrades one node to image. It records the boot ID and the Kubernetes node names, sends the upgrade request, waits
 // for the boot ID to change within offlineTimeout, and then waits for the node and its API server.
+// If the node re-registered under a new name, it then deletes the old Node object when it is not Ready.
+// A failure to read or delete Node objects is reported through outputFunc and does not fail the upgrade.
 // powercycle requests a full reboot instead of kexec, for platforms where kexec does not show as
 // offline. When skipIfCurrent is true, it first reads the running version of the node. If that
 // version equals the image tag, it reports this through outputFunc and returns nil without an
@@ -249,6 +252,8 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 // sends the request, waits for the boot ID to change within offlineTimeout, and then waits for
 // the node and, on a control plane, its kube-apiserver. outputFunc receives status messages.
 func (i *Provisioner) rollNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
+	previousNodeNames := i.previousNodeNames(ctx, node)
+
 	nodes := []string{node}
 	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
 
@@ -273,10 +278,43 @@ func (i *Provisioner) rollNode(ctx context.Context, node string, image string, o
 		return werror.Wrap(err, "kube-apiserver readiness check failed")
 	}
 
+	i.removeStaleNodes(ctx, node, previousNodeNames, outputFunc)
+
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Node %s upgraded successfully.", node))
 	}
 	return nil
+}
+
+// previousNodeNames returns the names of the Kubernetes Node objects at address before an upgrade.
+// It returns nil when no Kubernetes manager is set or the lookup fails, because the cleanup is optional.
+func (i *Provisioner) previousNodeNames(ctx context.Context, address string) []string {
+	if i.KubernetesManager == nil {
+		return nil
+	}
+	names, err := i.KubernetesManager.GetNodeNamesByAddress(ctx, address)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+// removeStaleNodes deletes the Node objects that the node had before it restarted under a new name.
+// It reports each deletion and each failure through outputFunc and never returns an error.
+func (i *Provisioner) removeStaleNodes(ctx context.Context, address string, previousNames []string, outputFunc func(string)) {
+	if i.KubernetesManager == nil || len(previousNames) == 0 {
+		return
+	}
+	deleted, err := i.KubernetesManager.RemoveStaleNodes(ctx, address, previousNames)
+	if outputFunc == nil {
+		return
+	}
+	for _, name := range deleted {
+		outputFunc(fmt.Sprintf("Deleted stale Kubernetes node %s, which the upgraded node replaced.", name))
+	}
+	if err != nil {
+		outputFunc(fmt.Sprintf("Could not delete the stale Kubernetes node for %s: %v", address, err))
+	}
 }
 
 // =============================================================================

@@ -78,6 +78,82 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		}
 	})
 
+	t.Run("DeletesStaleNodeAfterUpgrade", func(t *testing.T) {
+		// Given a node that had a Kubernetes node name before the upgrade
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetNodeNamesByAddressFunc = func(ctx context.Context, address string) ([]string, error) {
+			return []string{"worker-1-abc"}, nil
+		}
+		var gotAddress string
+		var gotPrevious []string
+		mocks.KubernetesManager.RemoveStaleNodesFunc = func(ctx context.Context, address string, previousNames []string) ([]string, error) {
+			gotAddress, gotPrevious = address, previousNames
+			return []string{"worker-1-abc"}, nil
+		}
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient, KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When UpgradeNode runs
+		var output []string
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img:v1.7.0", 0, false, false, func(msg string) { output = append(output, msg) })
+
+		// Then the stale node cleanup runs with the address and the old names, and reports the deletion
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotAddress != "10.0.0.1" || len(gotPrevious) != 1 || gotPrevious[0] != "worker-1-abc" {
+			t.Errorf("Unexpected cleanup arguments: %q %v", gotAddress, gotPrevious)
+		}
+		if !strings.Contains(strings.Join(output, "\n"), "Deleted stale Kubernetes node worker-1-abc") {
+			t.Errorf("Expected a deletion message, got %v", output)
+		}
+	})
+
+	t.Run("StaleNodeCleanupFailureDoesNotFailUpgrade", func(t *testing.T) {
+		// Given a cleanup that fails
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetNodeNamesByAddressFunc = func(ctx context.Context, address string) ([]string, error) {
+			return []string{"worker-1-abc"}, nil
+		}
+		mocks.KubernetesManager.RemoveStaleNodesFunc = func(ctx context.Context, address string, previousNames []string) ([]string, error) {
+			return nil, fmt.Errorf("forbidden")
+		}
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient, KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When UpgradeNode runs
+		var output []string
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img:v1.7.0", 0, false, false, func(msg string) { output = append(output, msg) })
+
+		// Then the upgrade succeeds and the failure is reported
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(strings.Join(output, "\n"), "Could not delete the stale Kubernetes node") {
+			t.Errorf("Expected a cleanup warning, got %v", output)
+		}
+	})
+
+	t.Run("SkipsCleanupWhenNodeHadNoKubernetesName", func(t *testing.T) {
+		// Given a node with no Node object before the upgrade
+		mocks := setupProvisionerMocks(t)
+		called := false
+		mocks.KubernetesManager.RemoveStaleNodesFunc = func(ctx context.Context, address string, previousNames []string) ([]string, error) {
+			called = true
+			return nil, nil
+		}
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient, KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When UpgradeNode runs
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img:v1.7.0", 0, false, false, nil)
+
+		// Then the cleanup does not run
+		if err != nil || called {
+			t.Errorf("Expected no cleanup call, got called=%v err=%v", called, err)
+		}
+	})
+
 	t.Run("APIReadyFails", func(t *testing.T) {
 		// Given a cluster client whose control plane API readiness check fails
 		mocks := setupProvisionerMocks(t)
