@@ -63,48 +63,51 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 		}
 	}
 
-	nodes := []string{node}
-	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
-	}
-	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle); err != nil {
-		return werror.Wrap(err, "upgrade request failed")
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
-	}
-	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, preActionBootIDs, versionFromImage(image), nil, offlineTimeout); err != nil {
-		return werror.Wrap(err, "node reboot wait failed")
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Verifying kube-apiserver readiness on %s (skipped for workers)...", node))
-	}
-	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node, outputFunc); err != nil {
-		return werror.Wrap(err, "kube-apiserver readiness check failed")
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Node %s upgraded successfully.", node))
-	}
-	return nil
+	return i.rollNode(ctx, node, image, offlineTimeout, powercycle, outputFunc)
 }
 
-// UpgradeNodes sends an upgrade request to specified cluster nodes. powercycle requests
-// a full ACPI reboot instead of the default kexec.
-// It initializes the cluster client based on config, then calls UpgradeNodes on it.
-// The caller is responsible for subsequently monitoring reboot status. Returns an error
-// if the cluster client cannot be initialized or if any node upgrade request fails.
-func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, powercycle bool) error {
+// UpgradeNodes upgrades the named cluster nodes to image. It reads the role of each node. When more
+// than one node is a control plane, it upgrades the control planes one at a time, in the order
+// named, with the same steps as UpgradeNode. It stops at the first failure, so a failed control
+// plane never overlaps another reboot and etcd keeps its quorum. It then sends the upgrade
+// requests for the workers together and returns without waiting for them to reboot. With one
+// control plane or none, it sends all requests together and returns without waiting.
+// powercycle requests a full ACPI reboot instead of the default kexec. offlineTimeout limits the
+// reboot wait for each control plane. outputFunc receives status messages. It returns an error
+// when the client cannot start, a role cannot be read, or an upgrade step fails.
+func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
 	}
 	defer i.ClusterClient.Close()
 
-	return i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle)
+	var controlPlanes, workers []string
+	for _, node := range nodes {
+		isControlPlane, err := i.ClusterClient.IsControlPlaneNode(ctx, node)
+		if err != nil {
+			return werror.Wrap(err, "failed to read the role of node %s", node)
+		}
+		if isControlPlane {
+			controlPlanes = append(controlPlanes, node)
+		} else {
+			workers = append(workers, node)
+		}
+	}
+
+	if len(controlPlanes) < 2 {
+		return i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle)
+	}
+
+	for _, node := range controlPlanes {
+		if err := i.rollNode(ctx, node, image, offlineTimeout, powercycle, outputFunc); err != nil {
+			return werror.Wrap(err, "control plane %s failed to upgrade; upgrades stopped", node)
+		}
+	}
+
+	if len(workers) == 0 {
+		return nil
+	}
+	return i.ClusterClient.UpgradeNodes(ctx, workers, image, powercycle)
 }
 
 // CheckNodeHealth checks the health of cluster nodes and of the Kubernetes API endpoint.
@@ -235,6 +238,44 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 		}
 	}
 
+	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// rollNode sends one upgrade request to node and waits for it to finish. It records the boot ID,
+// sends the request, waits for the boot ID to change within offlineTimeout, and then waits for
+// the node and, on a control plane, its kube-apiserver. outputFunc receives status messages.
+func (i *Provisioner) rollNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
+	nodes := []string{node}
+	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
+	}
+	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle); err != nil {
+		return werror.Wrap(err, "upgrade request failed")
+	}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
+	}
+	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, preActionBootIDs, versionFromImage(image), nil, offlineTimeout); err != nil {
+		return werror.Wrap(err, "node reboot wait failed")
+	}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Verifying kube-apiserver readiness on %s (skipped for workers)...", node))
+	}
+	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node, outputFunc); err != nil {
+		return werror.Wrap(err, "kube-apiserver readiness check failed")
+	}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Node %s upgraded successfully.", node))
+	}
 	return nil
 }
 

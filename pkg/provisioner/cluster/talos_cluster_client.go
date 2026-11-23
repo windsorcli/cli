@@ -309,6 +309,16 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 	return c.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, skipServices)
 }
 
+// IsControlPlaneNode reports whether a node is a control-plane node. It initializes the
+// Talos client, then checks the node role with isControlPlaneNode. It returns an error when
+// the client cannot be initialized or the role cannot be read.
+func (c *TalosClusterClient) IsControlPlaneNode(ctx context.Context, nodeAddress string) (bool, error) {
+	if err := c.ensureClient(); err != nil {
+		return false, werror.Wrap(err, "failed to initialize Talos client")
+	}
+	return c.isControlPlaneNode(ctx, nodeAddress)
+}
+
 // WaitForControlPlaneAPIReady waits for the kube-apiserver on a control-plane node
 // to accept TCP connections on port 6443. It first queries the Talos ServiceList to
 // determine the node's role: nodes that do not run the etcd service are treated as

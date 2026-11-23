@@ -73,7 +73,7 @@ windsor upgrade --yes
 # Move a specific source to a specific version
 windsor upgrade --source core=oci://ghcr.io/windsorcli/core:v0.6.0 --yes
 
-# Upgrade Talos nodes in parallel (see 'upgrade cluster')
+# Upgrade several Talos nodes (see 'upgrade cluster')
 windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0`,
 	Annotations: map[string]string{
 		migrationNoticeAnnotation: "true",
@@ -225,11 +225,11 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 
 var upgradeClusterCmd = &cobra.Command{
 	Use:   "cluster",
-	Short: "Upgrade cluster nodes in parallel.",
-	Long: `Initiate a Talos upgrade on the named nodes in parallel. Returns once the upgrade requests are accepted; nodes reboot asynchronously.
+	Short: "Upgrade several cluster nodes.",
+	Long: `Upgrade the named Talos nodes. Control planes upgrade one at a time, each until it is healthy, and the command stops at the first failure. Workers upgrade together after the control planes. The command returns when the worker requests are accepted; workers reboot asynchronously.
 
-Use 'windsor check node-health --wait-for-reboot' afterward to verify each node comes back healthy.`,
-	Example: `# Upgrade all controlplane nodes in parallel
+Use 'windsor check node-health --wait-for-reboot' afterward to verify the workers come back healthy.`,
+	Example: `# Upgrade three control planes one after another
 windsor upgrade cluster \
   --nodes=10.0.0.5,10.0.0.6,10.0.0.7 \
   --image=ghcr.io/siderolabs/installer:v1.13.0`,
@@ -267,7 +267,11 @@ windsor upgrade cluster \
 		comp := composer.NewComposer(rt)
 		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
-		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, powercycle); err != nil {
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
+		}
+
+		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, constants.DefaultNodeOfflineTimeout, powercycle, outputFunc); err != nil {
 			return werror.Wrap(err, "node upgrade failed")
 		}
 

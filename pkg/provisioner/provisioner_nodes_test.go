@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -1179,4 +1180,124 @@ func TestProvisioner_UpgradeNode_ExpectedVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProvisioner_UpgradeNodes(t *testing.T) {
+	type call struct {
+		step  string
+		nodes []string
+	}
+
+	setup := func(t *testing.T, controlPlanes ...string) (*provisioner.Provisioner, *[]call) {
+		t.Helper()
+		mocks := setupProvisionerMocks(t)
+		calls := &[]call{}
+		isCP := map[string]bool{}
+		for _, n := range controlPlanes {
+			isCP[n] = true
+		}
+		mocks.ClusterClient.IsControlPlaneNodeFunc = func(ctx context.Context, node string) (bool, error) {
+			return isCP[node], nil
+		}
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodes []string, image string, powercycle bool) error {
+			*calls = append(*calls, call{"upgrade", nodes})
+			return nil
+		}
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodes []string, ids map[string]string, version string, skip []string, offline time.Duration) error {
+			*calls = append(*calls, call{"reboot", nodes})
+			return nil
+		}
+		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, node string, out func(string)) error {
+			*calls = append(*calls, call{"api", []string{node}})
+			return nil
+		}
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		return provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts), calls
+	}
+
+	format := func(calls []call) string {
+		parts := make([]string, 0, len(calls))
+		for _, c := range calls {
+			parts = append(parts, c.step+":"+strings.Join(c.nodes, ","))
+		}
+		return strings.Join(parts, " ")
+	}
+
+	t.Run("RollsControlPlanesOneAtATimeThenWorkers", func(t *testing.T) {
+		// Given three control planes and one worker
+		prov, calls := setup(t, "cp1", "cp2", "cp3")
+
+		// When UpgradeNodes runs with the worker named first
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "cp2", "cp3"}, "img:v1.7.0", time.Minute, false, nil)
+
+		// Then each control plane finishes before the next starts and the worker request comes last
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		want := "upgrade:cp1 reboot:cp1 api:cp1 upgrade:cp2 reboot:cp2 api:cp2 upgrade:cp3 reboot:cp3 api:cp3 upgrade:w1"
+		if got := format(*calls); got != want {
+			t.Errorf("Expected calls %q, got %q", want, got)
+		}
+	})
+
+	t.Run("StopsAtFirstControlPlaneFailure", func(t *testing.T) {
+		// Given a second control plane whose reboot wait fails
+		prov, calls := setup(t, "cp1", "cp2", "cp3")
+		mocks := prov.ClusterClient.(*cluster.MockClusterClient)
+		mocks.WaitForNodesRebootFunc = func(ctx context.Context, nodes []string, ids map[string]string, version string, skip []string, offline time.Duration) error {
+			if nodes[0] == "cp2" {
+				return fmt.Errorf("timeout")
+			}
+			return nil
+		}
+
+		// When UpgradeNodes runs
+		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2", "cp3", "w1"}, "img", time.Minute, false, nil)
+
+		// Then the error names the control plane and no later node gets a request
+		if err == nil || !strings.Contains(err.Error(), "cp2") {
+			t.Fatalf("Expected an error naming cp2, got: %v", err)
+		}
+		for _, c := range *calls {
+			if c.step == "upgrade" && (c.nodes[0] == "cp3" || c.nodes[0] == "w1") {
+				t.Errorf("Expected no request to %v after the failure", c.nodes)
+			}
+		}
+	})
+
+	t.Run("SendsOneBatchForOneControlPlane", func(t *testing.T) {
+		// Given one control plane and one worker
+		prov, calls := setup(t, "cp1")
+
+		// When UpgradeNodes runs
+		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "w1"}, "img", time.Minute, false, nil)
+
+		// Then a single request covers both nodes with no reboot wait
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := format(*calls); got != "upgrade:cp1,w1" {
+			t.Errorf("Expected one batch request, got %q", got)
+		}
+	})
+
+	t.Run("RoleReadFails", func(t *testing.T) {
+		// Given a node whose role cannot be read
+		prov, calls := setup(t)
+		mocks := prov.ClusterClient.(*cluster.MockClusterClient)
+		mocks.IsControlPlaneNodeFunc = func(ctx context.Context, node string) (bool, error) {
+			return false, fmt.Errorf("unreachable")
+		}
+
+		// When UpgradeNodes runs
+		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2"}, "img", time.Minute, false, nil)
+
+		// Then it fails before any upgrade request
+		if err == nil || !strings.Contains(err.Error(), "unreachable") {
+			t.Fatalf("Expected a role error, got: %v", err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("Expected no calls, got %v", *calls)
+		}
+	})
 }

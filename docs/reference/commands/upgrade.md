@@ -21,7 +21,7 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 
 ## Subcommands
 
-- [`windsor upgrade cluster`](upgrade-cluster.md) — Upgrade cluster nodes in parallel.
+- [`windsor upgrade cluster`](upgrade-cluster.md) — Upgrade several cluster nodes.
 - [`windsor upgrade node`](upgrade-node.md) — Upgrade a single cluster node and wait for it to rejoin.
 
 ## Examples
@@ -36,7 +36,7 @@ windsor upgrade --yes
 # Move a specific source to a specific version
 windsor upgrade --source core=oci://ghcr.io/windsorcli/core:v0.6.0 --yes
 
-# Upgrade Talos nodes in parallel (see 'upgrade cluster')
+# Upgrade several Talos nodes (see 'upgrade cluster')
 windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0
 ```
 

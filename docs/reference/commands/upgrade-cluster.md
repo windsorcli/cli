@@ -1,15 +1,15 @@
 ---
 title: "windsor upgrade cluster"
-description: "Upgrade cluster nodes in parallel."
+description: "Upgrade several cluster nodes."
 ---
 
 ```sh
 windsor upgrade cluster [flags]
 ```
 
-Initiate a Talos upgrade on the named nodes in parallel. Returns once the upgrade requests are accepted; nodes reboot asynchronously.
+Upgrade the named Talos nodes. Control planes upgrade one at a time, each until it is healthy, and the command stops at the first failure. Workers upgrade together after the control planes. The command returns when the worker requests are accepted; workers reboot asynchronously.
 
-Use 'windsor check node-health --wait-for-reboot' afterward to verify each node comes back healthy.
+Use 'windsor check node-health --wait-for-reboot' afterward to verify the workers come back healthy.
 
 ## Flags
 
@@ -22,7 +22,7 @@ Use 'windsor check node-health --wait-for-reboot' afterward to verify each node 
 ## Examples
 
 ```sh
-# Upgrade all controlplane nodes in parallel
+# Upgrade three control planes one after another
 windsor upgrade cluster \
   --nodes=10.0.0.5,10.0.0.6,10.0.0.7 \
   --image=ghcr.io/siderolabs/installer:v1.13.0
