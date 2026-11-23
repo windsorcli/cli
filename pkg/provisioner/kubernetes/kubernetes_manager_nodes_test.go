@@ -309,6 +309,22 @@ func TestBaseKubernetesManager_DeleteKustomization_UnreachableNodePods(t *testin
 		}
 	})
 
+	t.Run("IgnoresPodsOnNodesThatNoLongerExist", func(t *testing.T) {
+		// Given a pod on a deleted node next to a pod on a NotReady node
+		manager := stuckSetup(t,
+			[]unstructured.Unstructured{nodeObject("ghost-1", "10.0.0.1", false)},
+			[]unstructured.Unstructured{podObject("gone", "deleted-node", true), podObject("stuck", "ghost-1", true)},
+			true)
+
+		// When the kustomization delete waits
+		err := manager.DeleteKustomization(context.Background(), "telemetry-install", "system-flux")
+
+		// Then it still fails early and names only the NotReady node
+		if err == nil || !strings.Contains(err.Error(), "node(s) ghost-1,") || strings.Contains(err.Error(), "deleted-node") {
+			t.Errorf("Expected an early failure naming only ghost-1, got %v", err)
+		}
+	})
+
 	t.Run("KeepsWaitingWhenAPodRunsOnAReadyNode", func(t *testing.T) {
 		// Given a pod that is deleting on a Ready node
 		manager := stuckSetup(t,

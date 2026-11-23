@@ -145,8 +145,10 @@ func (k *BaseKubernetesManager) findUnreachableNodePods(entries []InventoryEntry
 	if err != nil {
 		return nil
 	}
+	known := map[string]bool{}
 	notReady := map[string]bool{}
 	for _, node := range nodes {
+		known[node.name] = true
 		if !node.ready {
 			notReady[node.name] = true
 		}
@@ -166,13 +168,21 @@ func (k *BaseKubernetesManager) findUnreachableNodePods(entries []InventoryEntry
 		for i := range pods.Items {
 			pod := &pods.Items[i]
 			nodeName, _, _ := unstructured.NestedString(pod.Object, "spec", "nodeName")
+			if nodeName != "" && !known[nodeName] && pod.GetDeletionTimestamp() != nil {
+				continue
+			}
 			if pod.GetDeletionTimestamp() == nil || !notReady[nodeName] {
 				return nil
 			}
 			nodeSet[nodeName] = true
 			result.podCount++
+			if !slices.Contains(result.namespaces, namespace) {
+				result.namespaces = append(result.namespaces, namespace)
+			}
 		}
-		result.namespaces = append(result.namespaces, namespace)
+	}
+	if result.podCount == 0 {
+		return nil
 	}
 	for name := range nodeSet {
 		result.nodes = append(result.nodes, name)
