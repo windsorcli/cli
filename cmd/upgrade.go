@@ -35,6 +35,7 @@ var (
 	upgradeYes            bool
 	upgradeAllowDowngrade bool
 	upgradeRebootMode     string
+	upgradeOfflineTimeout time.Duration
 
 	upgradeNodeAddr           string
 	upgradeNodeImage          string
@@ -267,11 +268,16 @@ windsor upgrade cluster \
 		comp := composer.NewComposer(rt)
 		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
+		offlineTimeout := upgradeOfflineTimeout
+		if offlineTimeout <= 0 {
+			offlineTimeout = constants.DefaultNodeOfflineTimeout
+		}
+
 		outputFunc := func(output string) {
 			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, constants.DefaultNodeOfflineTimeout, powercycle, outputFunc); err != nil {
+		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, offlineTimeout, powercycle, outputFunc); err != nil {
 			return werror.Wrap(err, "node upgrade failed")
 		}
 
@@ -640,6 +646,7 @@ func init() {
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Talos image to upgrade to. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
+	upgradeClusterCmd.Flags().DurationVar(&upgradeOfflineTimeout, "offline-timeout", 0, "Timeout for each control plane to confirm it rebooted after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
 	_ = upgradeClusterCmd.MarkFlagRequired("nodes")
 	_ = upgradeClusterCmd.MarkFlagRequired("image")
 

@@ -519,3 +519,16 @@ func TestUpgradeCluster_HelpDescribesSequentialControlPlanes(t *testing.T) {
 		t.Errorf("expected help to say control planes upgrade one at a time, got: %s", stdout)
 	}
 }
+
+func TestUpgradeCluster_AcceptsOfflineTimeoutFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.5,10.0.0.6", "--image", "ghcr.io/siderolabs/installer:v1.13.0", "--offline-timeout", "8m"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --offline-timeout to be a recognized flag, got: %s", stderr)
+	}
+}

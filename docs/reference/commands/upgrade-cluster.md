@@ -17,6 +17,7 @@ Use 'windsor check node-health --wait-for-reboot' afterward to verify the worker
 |------|---------|-------------|
 | `--image` | `""` | Talos image to upgrade to. Required. |
 | `--nodes` | `[]` | Node addresses to upgrade. Required. |
+| `--offline-timeout` | `0s` | Timeout for each control plane to confirm it rebooted after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m. |
 | `--reboot-mode` | `default` | Reboot mode: "default" (kexec, fast) or "powercycle" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization). |
 
 ## Examples
