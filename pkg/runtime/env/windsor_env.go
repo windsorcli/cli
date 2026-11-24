@@ -66,7 +66,8 @@ func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler,
 
 // GetEnvVars sets WINDSOR_CONTEXT, WINDSOR_CONTEXT_ID, WINDSOR_PROJECT_ROOT,
 // WINDSOR_SESSION_TOKEN, and BUILD_ID. It evaluates secret expressions in the context's
-// custom environment variables and caches the resolved values. It merges GetManagedEnv
+// custom environment variables and caches the resolved values. It reports every key in
+// the context's environment map as managed on every run. It merges GetManagedEnv
 // and GetManagedAlias from every printer into WINDSOR_MANAGED_ENV and WINDSOR_MANAGED_ALIAS.
 // This printer runs last among all env printers. It then unsets any key the previous
 // WINDSOR_MANAGED_ENV listed that no printer manages this round.
@@ -98,20 +99,13 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 
-	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
-
 	for k, v := range originalEnvVars {
-		if !managedEnvExists {
-			e.SetManagedEnv(k)
-		}
+		e.SetManagedEnv(k)
 
 		normalizedValue := secrets.NormalizeLegacyBraces(v)
 
 		if evaluator.ContainsExpression(normalizedValue) {
 			if existingValue, exists := e.shims.LookupEnv(k); exists {
-				if managedEnvExists {
-					e.SetManagedEnv(k)
-				}
 				if e.shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
 					e.shell.RegisterSecret(existingValue)
 					continue

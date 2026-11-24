@@ -793,6 +793,85 @@ contexts:
 		}
 	})
 
+	setupWithEnvironments := func(t *testing.T, environments map[string]map[string]string, current string) (*config.MockConfigHandler, *EnvTestMocks, *string) {
+		t.Helper()
+		mockConfig := config.NewMockConfigHandler()
+		mocks := setupWindsorEnvMocks(t, &EnvTestMocks{ConfigHandler: mockConfig})
+		currentContext := current
+		mockConfig.GetContextFunc = func() string { return currentContext }
+		mockConfig.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return environments[currentContext]
+			}
+			return map[string]string{}
+		}
+		return mockConfig, mocks, &currentContext
+	}
+
+	t.Run("ReportsPlainEnvironmentKeysWhenManagedEnvExists", func(t *testing.T) {
+		// Given a context with a plain environment value
+		mockConfig, mocks, _ := setupWithEnvironments(t, map[string]map[string]string{
+			"ctx-a": {"PLAIN_VAR": "plain"},
+		}, "ctx-a")
+		printer := NewWindsorEnvPrinter(mocks.Shell, mockConfig, nil, []EnvPrinter{})
+		printer.shims = mocks.Shims
+
+		// And a later hook run where WINDSOR_MANAGED_ENV is already set
+		t.Setenv("WINDSOR_MANAGED_ENV", "PLAIN_VAR,WINDSOR_CONTEXT")
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then the plain environment key is still reported as managed
+		managed := strings.Split(envVars["WINDSOR_MANAGED_ENV"], ",")
+		if !slices.Contains(managed, "PLAIN_VAR") {
+			t.Errorf("WINDSOR_MANAGED_ENV = %q, want it to contain PLAIN_VAR", envVars["WINDSOR_MANAGED_ENV"])
+		}
+	})
+
+	t.Run("UnsetsEnvironmentKeysAfterContextSwitch", func(t *testing.T) {
+		// Given two contexts whose environment maps share one key
+		mockConfig, mocks, currentContext := setupWithEnvironments(t, map[string]map[string]string{
+			"ctx-a": {"SHARED_VAR": "from-a", "ONLY_A_VAR": "only-in-a"},
+			"ctx-b": {"SHARED_VAR": "from-b"},
+		}, "ctx-a")
+		run := func() map[string]string {
+			t.Helper()
+			printer := NewWindsorEnvPrinter(mocks.Shell, mockConfig, nil, []EnvPrinter{})
+			printer.shims = mocks.Shims
+			envVars, err := printer.GetEnvVars()
+			if err != nil {
+				t.Fatalf("GetEnvVars returned an error: %v", err)
+			}
+			return envVars
+		}
+
+		// And the hook ran twice in ctx-a, with each result exported to the shell
+		for range 2 {
+			envVars := run()
+			for _, key := range []string{"SHARED_VAR", "ONLY_A_VAR", "WINDSOR_MANAGED_ENV"} {
+				t.Setenv(key, envVars[key])
+			}
+		}
+
+		// When the context switches to ctx-b and the hook runs again
+		*currentContext = "ctx-b"
+		envVars := run()
+
+		// Then the key that only ctx-a defines is unset
+		if got, ok := envVars["ONLY_A_VAR"]; !ok || got != "" {
+			t.Errorf("ONLY_A_VAR = %q, ok=%v, want empty string to unset it", got, ok)
+		}
+
+		// And the shared key takes the ctx-b value
+		if envVars["SHARED_VAR"] != "from-b" {
+			t.Errorf("SHARED_VAR = %q, want %q", envVars["SHARED_VAR"], "from-b")
+		}
+	})
+
 	t.Run("DoesNotUnsetKeysStillManagedByAnotherPrinter", func(t *testing.T) {
 		// Given a prior invocation's WINDSOR_MANAGED_ENV names a key that another
 		// printer still registers as managed this round
