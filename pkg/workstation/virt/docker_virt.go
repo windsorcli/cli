@@ -67,6 +67,27 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
+// AnnotateApplyError adds the fix for a leftover network to err when the apply of workstation/docker failed.
+// It adds the text only when err names that component and the network windsor-<context> exists.
+// Terraform may own that network, so the text says what to do if a failed run left it, and removes nothing.
+// It returns err unchanged in all other cases.
+func (v *DockerVirt) AnnotateApplyError(err error) error {
+	if err == nil || !strings.Contains(err.Error(), "terraform apply for workstation/docker") {
+		return err
+	}
+	netName := WindsorNetworkPrefix + v.configHandler.GetContext()
+	out, listErr := v.shell.ExecSilent("docker", "network", "ls", "--format", "{{.Name}}")
+	if listErr != nil {
+		return err
+	}
+	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.TrimSpace(name) == netName {
+			return fmt.Errorf("%w\nThe Docker network %s exists. If a failed run left it behind, run windsor down, then run windsor up again", err, netName)
+		}
+	}
+	return err
+}
+
 // Down removes the containers, the named volumes, and the network of the context, and nothing else.
 // It finds the containers and volumes by the label com.docker.compose.project=workstation-windsor-<context>.
 // It does nothing when DOCKER_HOST names a unix socket that does not exist, because the VM is gone.

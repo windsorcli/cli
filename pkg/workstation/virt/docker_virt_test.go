@@ -1,6 +1,7 @@
 package virt_test
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -129,6 +130,73 @@ func TestDockerVirt_Up(t *testing.T) {
 		want := "Docker isn't running. Start Docker and run windsor up again"
 		if err == nil || err.Error() != want {
 			t.Errorf("Expected %q, got %v", want, err)
+		}
+	})
+}
+
+func TestDockerVirt_AnnotateApplyError(t *testing.T) {
+	applyErr := fmt.Errorf("error running terraform apply for workstation/docker: command execution failed")
+
+	t.Run("AddsFixWhenNetworkExists", func(t *testing.T) {
+		// Given a failed workstation/docker apply and an existing network
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "bridge\nwindsor-" + f.runtime.ConfigHandler.GetContext() + "\n", nil
+		}
+
+		// When annotating the error
+		err := dockerVirt.AnnotateApplyError(applyErr)
+
+		// Then the error keeps the cause and names the network and windsor down
+		if !errors.Is(err, applyErr) {
+			t.Errorf("Expected the original error to be wrapped, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "windsor-"+f.runtime.ConfigHandler.GetContext()) || !strings.Contains(err.Error(), "windsor down") {
+			t.Errorf("Expected network name and windsor down, got %v", err)
+		}
+	})
+
+	t.Run("LeavesErrorWhenNetworkMissing", func(t *testing.T) {
+		// Given a failed workstation/docker apply and no windsor network
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) { return "bridge\n", nil }
+
+		// When annotating the error
+		err := dockerVirt.AnnotateApplyError(applyErr)
+
+		// Then the error is unchanged
+		if err != applyErr {
+			t.Errorf("Expected unchanged error, got %v", err)
+		}
+	})
+
+	t.Run("LeavesErrorForOtherComponent", func(t *testing.T) {
+		// Given a failed apply of another component
+		f, dockerVirt := setupDockerVirt(t)
+		called := false
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) { called = true; return "", nil }
+		other := fmt.Errorf("error running terraform apply for cluster/talos: failed")
+
+		// When annotating the error
+		err := dockerVirt.AnnotateApplyError(other)
+
+		// Then the error is unchanged and docker is not called
+		if err != other || called {
+			t.Errorf("Expected unchanged error without docker call, got %v (called=%v)", err, called)
+		}
+	})
+
+	t.Run("LeavesErrorWhenListFails", func(t *testing.T) {
+		// Given a network list that fails
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) { return "", fmt.Errorf("no daemon") }
+
+		// When annotating the error
+		err := dockerVirt.AnnotateApplyError(applyErr)
+
+		// Then the error is unchanged
+		if err != applyErr {
+			t.Errorf("Expected unchanged error, got %v", err)
 		}
 	})
 }

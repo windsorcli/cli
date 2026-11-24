@@ -383,6 +383,40 @@ func TestNewWorkstation(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
+func TestWorkstation_AnnotateApplyError(t *testing.T) {
+	t.Run("ReturnsErrorUnchangedWhenRuntimeHasNoHint", func(t *testing.T) {
+		// Given a workstation whose container runtime offers no hint
+		mocks := setupWorkstationMocks(t)
+		ws := workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{
+			ContainerRuntime: mocks.ContainerRuntime,
+		})
+		in := fmt.Errorf("apply failed")
+
+		// When annotating the error
+		out := ws.AnnotateApplyError(in)
+
+		// Then the error is unchanged
+		if out != in {
+			t.Errorf("Expected unchanged error, got %v", out)
+		}
+	})
+
+	t.Run("ReturnsErrorUnchangedWithoutContainerRuntime", func(t *testing.T) {
+		// Given a workstation without a container runtime
+		mocks := setupWorkstationMocks(t)
+		ws := workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{})
+		in := fmt.Errorf("apply failed")
+
+		// When annotating the error
+		out := ws.AnnotateApplyError(in)
+
+		// Then the error is unchanged
+		if out != in {
+			t.Errorf("Expected unchanged error, got %v", out)
+		}
+	})
+}
+
 func TestWorkstation_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a workstation with all dependencies configured

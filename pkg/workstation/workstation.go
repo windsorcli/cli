@@ -146,6 +146,15 @@ func (w *Workstation) Prepare() error {
 	return nil
 }
 
+// AnnotateApplyError adds a recovery hint to err when the container runtime knows one.
+// It returns err unchanged when the container runtime has no hint.
+func (w *Workstation) AnnotateApplyError(err error) error {
+	if a, ok := w.ContainerRuntime.(interface{ AnnotateApplyError(error) error }); ok {
+		return a.AnnotateApplyError(err)
+	}
+	return err
+}
+
 // Up sets NO_CACHE, starts the VM and the container runtime, and configures the network.
 // It configures the guest, the host route, and the DNS only when DeferHostGuestSetup is false.
 // Otherwise MakeApplyHook and 'windsor configure network' do that work.
