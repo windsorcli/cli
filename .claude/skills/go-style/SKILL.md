@@ -83,10 +83,10 @@ never contains:
 - **WIP or historical narrative** — "TODO: revisit after X ships," "previously did Y, now does Z,"
   fix-history explanations. The codebase is always "now"; history lives in git and PR descriptions,
   never in the source.
-- **ADR, ticket, or issue references** — `// per ADR 0002` or `// see #3104` describes why a decision
-  was made, which belongs in the ADR or the commit that implemented it, not in the code the decision
-  produced. A reader six months from now needs to know what the function does, not which planning
-  document justified it.
+- **ADR, ticket, or issue references** — `// per ADR 0002` or `// see #3104` points at why a
+  decision was made. That reason belongs in the commit or PR that made the change, not in the code.
+  A reader six months from now needs to know what the function does, not which planning document
+  justified it.
 - **Phase or wave labels** — "Phase 2:", "Wave 1 cleanup:" — these are release-planning vocabulary,
   not descriptions of behavior, and go stale the moment the release ships.
 
