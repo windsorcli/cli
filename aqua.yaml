@@ -25,5 +25,5 @@ packages:
 - name: helm/helm@v4.3.2
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.10.1
-- name: aws/aws-cli@2.42.1
+- name: aws/aws-cli@2.42.3
 - name: twistedpair/google-cloud-sdk@562.0.0
