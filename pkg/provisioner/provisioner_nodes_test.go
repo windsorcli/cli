@@ -1299,18 +1299,18 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		return strings.Join(parts, " ")
 	}
 
-	t.Run("RollsControlPlanesOneAtATimeThenWorkers", func(t *testing.T) {
+	t.Run("RollsControlPlanesThenWorkersOneAtATime", func(t *testing.T) {
 		// Given three control planes and one worker
 		prov, calls := setup(t, "cp1", "cp2", "cp3")
 
 		// When UpgradeNodes runs with the worker named first
 		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "cp2", "cp3"}, "img:v1.7.0", time.Minute, false, nil)
 
-		// Then each control plane finishes before the next starts and the worker request comes last
+		// Then each node finishes before the next starts and the worker rolls last
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		want := "upgrade:cp1 reboot:cp1 api:cp1 upgrade:cp2 reboot:cp2 api:cp2 upgrade:cp3 reboot:cp3 api:cp3 upgrade:w1"
+		want := "upgrade:cp1 reboot:cp1 api:cp1 upgrade:cp2 reboot:cp2 api:cp2 upgrade:cp3 reboot:cp3 api:cp3 upgrade:w1 reboot:w1 api:w1"
 		if got := format(*calls); got != want {
 			t.Errorf("Expected calls %q, got %q", want, got)
 		}
@@ -1330,7 +1330,7 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		// When UpgradeNodes runs
 		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2", "cp3", "w1"}, "img", time.Minute, false, nil)
 
-		// Then the error names the control plane and no later node gets a request
+		// Then the error names the node and no later node gets a request
 		if err == nil || !strings.Contains(err.Error(), "cp2") {
 			t.Fatalf("Expected an error naming cp2, got: %v", err)
 		}
@@ -1341,19 +1341,20 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		}
 	})
 
-	t.Run("SendsOneBatchForOneControlPlane", func(t *testing.T) {
-		// Given one control plane and one worker
+	t.Run("RollsWorkersOneAtATime", func(t *testing.T) {
+		// Given one control plane and two workers
 		prov, calls := setup(t, "cp1")
 
 		// When UpgradeNodes runs
-		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "w1"}, "img", time.Minute, false, nil)
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "w2"}, "img", time.Minute, false, nil)
 
-		// Then a single request covers both nodes with no reboot wait
+		// Then every node rolls alone, control plane first
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if got := format(*calls); got != "upgrade:cp1,w1" {
-			t.Errorf("Expected one batch request, got %q", got)
+		want := "upgrade:cp1 reboot:cp1 api:cp1 upgrade:w1 reboot:w1 api:w1 upgrade:w2 reboot:w2 api:w2"
+		if got := format(*calls); got != want {
+			t.Errorf("Expected calls %q, got %q", want, got)
 		}
 	})
 

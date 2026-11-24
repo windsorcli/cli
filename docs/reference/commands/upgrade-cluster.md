@@ -7,9 +7,7 @@ description: "Upgrade several cluster nodes."
 windsor upgrade cluster [flags]
 ```
 
-Upgrade the named Talos nodes. Control planes upgrade one at a time, each until it is healthy, and the command stops at the first failure. Workers upgrade together after the control planes. The command returns when the worker requests are accepted; workers reboot asynchronously.
-
-Use 'windsor check node-health --wait-for-reboot' afterward to verify the workers come back healthy.
+Upgrade the named Talos nodes. Nodes upgrade one at a time, control planes first. Each node must be healthy before the next starts, and the command stops at the first failure.
 
 ## Flags
 
@@ -17,13 +15,13 @@ Use 'windsor check node-health --wait-for-reboot' afterward to verify the worker
 |------|---------|-------------|
 | `--image` | `""` | Talos image to upgrade to. Required. |
 | `--nodes` | `[]` | Node addresses to upgrade. Required. |
-| `--offline-timeout` | `0s` | Timeout for each control plane to confirm it rebooted after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m. |
+| `--offline-timeout` | `0s` | Timeout for each node to confirm its reboot. Default 3m. |
 | `--reboot-mode` | `default` | Reboot mode: "default" (kexec, fast) or "powercycle" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization). |
 
 ## Examples
 
 ```sh
-# Upgrade three control planes one after another
+# Upgrade three control planes in turn
 windsor upgrade cluster \
   --nodes=10.0.0.5,10.0.0.6,10.0.0.7 \
   --image=ghcr.io/siderolabs/installer:v1.13.0
