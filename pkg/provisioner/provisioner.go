@@ -56,6 +56,7 @@ type Provisioner struct {
 	projectRoot   string
 	configRoot    string
 	runtime       *runtime.Runtime
+	checkedSecret map[string]any
 
 	Shims                *Shims
 	PollInterval         time.Duration

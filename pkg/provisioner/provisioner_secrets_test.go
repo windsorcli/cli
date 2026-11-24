@@ -879,6 +879,49 @@ func TestProvisioner_CheckSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsWhenSecretResolvesEmpty", func(t *testing.T) {
+		// Given a provider that returns an empty value
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) { return "", nil })
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{"token": `${secret("v", "i", "f")}`}))
+
+		// Then the check fails with the empty-value error
+		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
+			t.Errorf("Expected an empty-value error, got %v", err)
+		}
+	})
+
+	t.Run("ResolveSecretsReusesCheckedValues", func(t *testing.T) {
+		// Given a provider that counts its calls
+		mocks := setupProvisionerMocks(t)
+		calls := 0
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) {
+			calls++
+			return "value", nil
+		})
+		p := newProvisioner(mocks)
+		blueprint := bp(map[string]string{"token": `${secret("v", "i", "f")}`})
+
+		// When checking and then resolving the secrets
+		if err := p.CheckSecrets(blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		resolved, err := p.ResolveSecrets(blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the provider ran once and the value reached the result
+		if calls != 1 {
+			t.Errorf("Expected one provider call, got %d", calls)
+		}
+		if got := resolved["gitops"]["creds"].Data["token"]; got != "value" {
+			t.Errorf("Expected resolved value, got %q", got)
+		}
+	})
+
 	t.Run("NilBlueprintPasses", func(t *testing.T) {
 		if err := newProvisioner(setupProvisionerMocks(t)).CheckSecrets(nil); err != nil {
 			t.Errorf("Expected no error, got %v", err)

@@ -59,8 +59,11 @@ type pendingPlacement struct {
 
 // CheckSecrets resolves every secret reference of the blueprint and discards the values.
 // It runs before the first terraform apply, so an unreachable provider or a missing item fails the
-// command before Windsor changes anything. It skips a reference that calls terraform_output, because
-// that value exists only after apply. It reports every failing reference in one error.
+// command before Windsor changes anything. A reference that resolves to nil or to an empty string
+// fails here, as in ResolveSecrets, unless it has a ?? default. It keeps each resolved value in memory,
+// so ResolveSecrets does not fetch the same reference again. It skips a reference that calls
+// terraform_output, because that value exists only after apply. It reports every failing reference
+// in one error.
 func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return nil
@@ -72,9 +75,19 @@ func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error
 				if strings.Contains(ref, "terraform_output(") {
 					continue
 				}
-				if _, err := i.evaluator.Evaluate(ref, "", nil, true); err != nil {
+				value, err := i.evaluator.Evaluate(ref, "", nil, true)
+				if err != nil {
 					errs = append(errs, werror.Wrap(err, "resolving secret %q key %q", secretName, key))
+					continue
 				}
+				if err := emptySecretError(secretName, key, ref, value); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				if i.checkedSecret == nil {
+					i.checkedSecret = make(map[string]any)
+				}
+				i.checkedSecret[ref] = value
 			}
 		}
 	}
@@ -101,19 +114,23 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 		for secretName, entry := range k.Secrets {
 			stringData := make(map[string]string, len(entry.Data))
 			for key, ref := range entry.Data {
-				value, err := i.evaluator.Evaluate(ref, "", nil, true)
-				if err != nil {
-					return nil, werror.Wrap(err, "resolving secret %q key %q", secretName, key)
+				value, cached := i.checkedSecret[ref]
+				if !cached {
+					var err error
+					value, err = i.evaluator.Evaluate(ref, "", nil, true)
+					if err != nil {
+						return nil, werror.Wrap(err, "resolving secret %q key %q", secretName, key)
+					}
 				}
 				s := ""
 				if value != nil {
 					s = fmt.Sprint(value)
 				}
+				if err := emptySecretError(secretName, key, ref, value); err != nil {
+					return nil, err
+				}
 				if s == "" {
-					if strings.Contains(ref, "??") {
-						continue
-					}
-					return nil, werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
+					continue
 				}
 				i.shell.RegisterSecret(s)
 				stringData[key] = s
@@ -155,6 +172,18 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// emptySecretError returns an error when value is nil or an empty string and ref has no ?? default.
+// A ?? default makes the key optional, so the empty value is not an error.
+func emptySecretError(secretName, key, ref string, value any) error {
+	if value != nil && fmt.Sprint(value) != "" {
+		return nil
+	}
+	if strings.Contains(ref, "??") {
+		return nil
+	}
+	return werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
+}
 
 // placeSecrets places the resolved secrets as PlaceSecrets describes, and reports each wait and each
 // placement as progress of the owning kustomization in layers. After a placement it reconciles the
