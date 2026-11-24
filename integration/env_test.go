@@ -6,6 +6,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -309,6 +310,68 @@ azure:
 		if !unset[key] {
 			t.Errorf("expected %q to be unset after switching away from azure-test, got:\n%s", key, localStdout)
 		}
+	}
+}
+
+// TestEnv_UnsetsContextEnvironmentKeysOnContextSwitch verifies that a key from one
+// context's environment block is unset after a switch to a context that does not
+// define it. The hook runs twice in the first context, as it does on each prompt.
+func TestEnv_UnsetsContextEnvironmentKeysOnContextSwitch(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	contexts := map[string]string{
+		"env-a": "environment:\n  SHARED_VAR: from-a\n  ONLY_A_VAR: only-in-a\n",
+		"env-b": "environment:\n  SHARED_VAR: from-b\n",
+	}
+	for name, values := range contexts {
+		if err := os.MkdirAll(filepath.Join(dir, "contexts", name), 0755); err != nil {
+			t.Fatalf("mkdir context: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "contexts", name, "values.yaml"), []byte(values), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+	}
+	helpers.MarkAsGitRepo(t, dir)
+	for _, args := range [][]string{{"init"}, {"init", "env-a"}, {"init", "env-b"}, {"set", "context", "env-a"}} {
+		if _, stderr, err := helpers.RunCLI(dir, args, env); err != nil {
+			t.Fatalf("windsor %v: %v\nstderr: %s", args, err, stderr)
+		}
+	}
+
+	shellEnv := append([]string{}, env...)
+	for range 2 {
+		stdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--hook"}, shellEnv)
+		if err != nil {
+			t.Fatalf("env --hook (env-a): %v\nstderr: %s", err, stderr)
+		}
+		if !strings.Contains(string(stdout), "ONLY_A_VAR") {
+			t.Fatalf("expected ONLY_A_VAR while on env-a, got:\n%s", stdout)
+		}
+		shellEnv = append(shellEnv, exportedEnvFrom(stdout)...)
+	}
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"set", "context", "env-b"}, shellEnv); err != nil {
+		t.Fatalf("set context env-b: %v\nstderr: %s", err, stderr)
+	}
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--hook"}, shellEnv)
+	if err != nil {
+		t.Fatalf("env --hook (env-b): %v\nstderr: %s", err, stderr)
+	}
+
+	unset := map[string]bool{}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if rest, ok := strings.CutPrefix(line, "unset "); ok {
+			for _, key := range strings.Fields(rest) {
+				unset[key] = true
+			}
+		}
+	}
+	if !unset["ONLY_A_VAR"] {
+		t.Errorf("expected ONLY_A_VAR to be unset after switching to env-b, got:\n%s", stdout)
+	}
+	if !slices.Contains(exportedEnvFrom(stdout), "SHARED_VAR=from-b") {
+		t.Errorf("expected SHARED_VAR=from-b after switching to env-b, got:\n%s", stdout)
 	}
 }
 
