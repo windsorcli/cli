@@ -1304,7 +1304,7 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		prov, calls := setup(t, "cp1", "cp2", "cp3")
 
 		// When UpgradeNodes runs with the worker named first
-		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "cp2", "cp3"}, "img:v1.7.0", time.Minute, false, nil)
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "cp2", "cp3"}, "img:v1.7.0", 0, time.Minute, false, false, nil)
 
 		// Then each node finishes before the next starts and the worker rolls last
 		if err != nil {
@@ -1328,7 +1328,7 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		}
 
 		// When UpgradeNodes runs
-		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2", "cp3", "w1"}, "img", time.Minute, false, nil)
+		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2", "cp3", "w1"}, "img", 0, time.Minute, false, false, nil)
 
 		// Then the error names the node and no later node gets a request
 		if err == nil || !strings.Contains(err.Error(), "cp2") {
@@ -1346,7 +1346,7 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		prov, calls := setup(t, "cp1")
 
 		// When UpgradeNodes runs
-		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "w2"}, "img", time.Minute, false, nil)
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "cp1", "w2"}, "img", 0, time.Minute, false, false, nil)
 
 		// Then every node rolls alone, control plane first
 		if err != nil {
@@ -1355,6 +1355,59 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		want := "upgrade:cp1 reboot:cp1 api:cp1 upgrade:w1 reboot:w1 api:w1 upgrade:w2 reboot:w2 api:w2"
 		if got := format(*calls); got != want {
 			t.Errorf("Expected calls %q, got %q", want, got)
+		}
+	})
+
+	t.Run("SkipsNodesAlreadyAtVersion", func(t *testing.T) {
+		// Given two nodes where the first already runs the image version
+		prov, calls := setup(t)
+		mocks := prov.ClusterClient.(*cluster.MockClusterClient)
+		mocks.GetNodeVersionFunc = func(ctx context.Context, node string) (string, error) {
+			if node == "w1" {
+				return "1.7.0", nil
+			}
+			return "1.6.0", nil
+		}
+
+		// When UpgradeNodes runs with skipIfCurrent
+		var output []string
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "w2"}, "img:v1.7.0", 0, time.Minute, false, true, func(msg string) {
+			output = append(output, msg)
+		})
+
+		// Then only the older node rolls and the skip is reported
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := format(*calls); got != "upgrade:w2 reboot:w2 api:w2" {
+			t.Errorf("Expected only w2 to roll, got %q", got)
+		}
+		if !strings.Contains(strings.Join(output, "\n"), "Node w1 is already at version 1.7.0") {
+			t.Errorf("Expected a skip message, got %v", output)
+		}
+	})
+
+	t.Run("AppliesNodeTimeoutToEachNode", func(t *testing.T) {
+		// Given a per-node timeout
+		prov, _ := setup(t)
+		mocks := prov.ClusterClient.(*cluster.MockClusterClient)
+		var deadlines int
+		mocks.UpgradeNodesFunc = func(ctx context.Context, nodes []string, image string, powercycle bool) error {
+			if _, ok := ctx.Deadline(); ok {
+				deadlines++
+			}
+			return nil
+		}
+
+		// When UpgradeNodes runs for two nodes
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "w2"}, "img", time.Minute, time.Second, false, false, nil)
+
+		// Then every node request runs under its own deadline
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if deadlines != 2 {
+			t.Errorf("Expected 2 requests with a deadline, got %d", deadlines)
 		}
 	})
 
@@ -1367,7 +1420,7 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		}
 
 		// When UpgradeNodes runs
-		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2"}, "img", time.Minute, false, nil)
+		err := prov.UpgradeNodes(context.Background(), []string{"cp1", "cp2"}, "img", 0, time.Minute, false, false, nil)
 
 		// Then it fails before any upgrade request
 		if err == nil || !strings.Contains(err.Error(), "unreachable") {

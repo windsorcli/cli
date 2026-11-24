@@ -56,14 +56,8 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	}
 	defer i.ClusterClient.Close()
 
-	if skipIfCurrent {
-		target := versionFromImage(image)
-		if current, err := i.ClusterClient.GetNodeVersion(ctx, node); err == nil && target != "" && current == target {
-			if outputFunc != nil {
-				outputFunc(fmt.Sprintf("Node %s is already at version %s. Skipping upgrade.", node, current))
-			}
-			return nil
-		}
+	if skipIfCurrent && i.nodeIsCurrent(ctx, node, image, outputFunc) {
+		return nil
 	}
 
 	return i.rollNode(ctx, node, image, offlineTimeout, powercycle, outputFunc)
@@ -74,9 +68,11 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 // named. Each node runs the same steps as UpgradeNode, so the next node starts only after the
 // previous one is healthy. It stops at the first failure. This keeps etcd quorum and leaves
 // workloads on the other nodes running. powercycle requests a full ACPI reboot instead of the
-// default kexec. offlineTimeout limits the reboot wait for each node. outputFunc receives status
+// default kexec. nodeTimeout limits the whole upgrade of each node, and zero sets no limit.
+// offlineTimeout limits the reboot wait for each node. When skipIfCurrent is true, a node that
+// already runs the image version is skipped, as in UpgradeNode. outputFunc receives status
 // messages. It returns an error when the client cannot start, a role cannot be read, or a step fails.
-func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
+func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, nodeTimeout time.Duration, offlineTimeout time.Duration, powercycle bool, skipIfCurrent bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
 	}
@@ -96,7 +92,7 @@ func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image st
 	}
 
 	for _, node := range append(controlPlanes, workers...) {
-		if err := i.rollNode(ctx, node, image, offlineTimeout, powercycle, outputFunc); err != nil {
+		if err := i.upgradeOneOfMany(ctx, node, image, nodeTimeout, offlineTimeout, powercycle, skipIfCurrent, outputFunc); err != nil {
 			return werror.Wrap(err, "node %s failed to upgrade; upgrades stopped", node)
 		}
 	}
@@ -237,6 +233,35 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// upgradeOneOfMany upgrades one node of a larger run. It applies nodeTimeout to this node only,
+// so a slow node does not shorten the time left for the next one. When skipIfCurrent is true and
+// the node already runs the image version, it returns nil without a request or reboot.
+func (i *Provisioner) upgradeOneOfMany(ctx context.Context, node string, image string, nodeTimeout time.Duration, offlineTimeout time.Duration, powercycle bool, skipIfCurrent bool, outputFunc func(string)) error {
+	if nodeTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, nodeTimeout)
+		defer cancel()
+	}
+	if skipIfCurrent && i.nodeIsCurrent(ctx, node, image, outputFunc) {
+		return nil
+	}
+	return i.rollNode(ctx, node, image, offlineTimeout, powercycle, outputFunc)
+}
+
+// nodeIsCurrent reports whether the node already runs the version of image. It reports a skip
+// through outputFunc. It returns false when the version cannot be read or the image has no tag.
+func (i *Provisioner) nodeIsCurrent(ctx context.Context, node string, image string, outputFunc func(string)) bool {
+	target := versionFromImage(image)
+	current, err := i.ClusterClient.GetNodeVersion(ctx, node)
+	if err != nil || target == "" || current != target {
+		return false
+	}
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Node %s is already at version %s. Skipping upgrade.", node, current))
+	}
+	return true
+}
 
 // rollNode sends one upgrade request to node and waits for it to finish. It records the boot ID,
 // sends the request, waits for the boot ID to change within offlineTimeout, and then waits for
