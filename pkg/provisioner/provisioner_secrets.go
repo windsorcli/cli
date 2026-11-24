@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -55,6 +56,30 @@ type pendingPlacement struct {
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// CheckSecrets resolves every secret reference of the blueprint and discards the values.
+// It runs before the first terraform apply, so an unreachable provider or a missing item fails the
+// command before Windsor changes anything. It skips a reference that calls terraform_output, because
+// that value exists only after apply. It reports every failing reference in one error.
+func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return nil
+	}
+	var errs []error
+	for _, k := range withCrdLayer(blueprint).Kustomizations {
+		for secretName, entry := range k.Secrets {
+			for key, ref := range entry.Data {
+				if strings.Contains(ref, "terraform_output(") {
+					continue
+				}
+				if _, err := i.evaluator.Evaluate(ref, "", nil, true); err != nil {
+					errs = append(errs, werror.Wrap(err, "resolving secret %q key %q", secretName, key))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
 
 // ResolveSecrets resolves the secrets of every flux system to plaintext before Install.
 // A misconfigured secret then fails the command before Windsor applies anything to the cluster.
