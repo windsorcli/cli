@@ -233,6 +233,9 @@ func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, e
 	}
 	halted, err := p.Provisioner.Up(ctx, blueprint, hooks...)
 	if err != nil {
+		if p.Workstation != nil {
+			err = p.Workstation.AnnotateApplyError(err)
+		}
 		return nil, false, werror.Wrap(err, "error starting infrastructure")
 	}
 	return blueprint, halted, nil
@@ -266,6 +269,9 @@ func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapCo
 	}
 	halted, err := p.Provisioner.Bootstrap(ctx, blueprint, hooks...)
 	if err != nil {
+		if p.Workstation != nil {
+			err = p.Workstation.AnnotateApplyError(err)
+		}
 		return nil, false, false, werror.Wrap(err, "error starting infrastructure")
 	}
 	return blueprint, true, halted, nil
