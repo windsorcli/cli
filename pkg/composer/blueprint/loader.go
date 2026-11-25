@@ -186,6 +186,10 @@ func (l *BaseBlueprintLoader) loadUserBlueprint() error {
 	if configRoot == "" {
 		return nil
 	}
+	// A config root that is the template directory is already loaded as the "template" source.
+	if l.runtime.TemplateRoot != "" && filepath.Clean(configRoot) == filepath.Clean(l.runtime.TemplateRoot) {
+		return nil
+	}
 
 	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
 	if absPath, err := filepath.Abs(blueprintPath); err == nil {

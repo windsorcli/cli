@@ -168,6 +168,30 @@ func TestLoader_GetBlueprint(t *testing.T) {
 }
 
 func TestLoader_GetBlueprintPath(t *testing.T) {
+	t.Run("SkipsUserBlueprintWhenConfigRootIsTemplateRoot", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		mocks.Runtime.ConfigRoot = mocks.Runtime.TemplateRoot
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("Failed to create template root: %v", err)
+		}
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: core
+exports:
+  - gateway_effective
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+		loader := blueprint.NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		if err := loader.Load("user", ""); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if loader.GetBlueprint() != nil {
+			t.Error("Expected no user blueprint when the config root is the template root")
+		}
+	})
+
 	t.Run("ReturnsAbsolutePathForUserBlueprintWhenLoaded", func(t *testing.T) {
 		mocks := setupLoaderMocks(t)
 		blueprintYaml := `kind: Blueprint
