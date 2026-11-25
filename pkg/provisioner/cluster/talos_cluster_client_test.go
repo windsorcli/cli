@@ -1627,3 +1627,66 @@ func TestTalosClusterClient_GetNodeVersion(t *testing.T) {
 		}
 	})
 }
+
+func TestTalosClusterClient_IsControlPlaneNode(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		t.Cleanup(func() { os.Unsetenv("TALOSCONFIG") })
+		return client
+	}
+
+	serviceList := func(ids ...string) *machine.ServiceListResponse {
+		services := make([]*machine.ServiceInfo, 0, len(ids))
+		for _, id := range ids {
+			services = append(services, &machine.ServiceInfo{Id: id})
+		}
+		return &machine.ServiceListResponse{Messages: []*machine.ServiceList{{Services: services}}}
+	}
+
+	t.Run("TrueWhenEtcdRuns", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return serviceList("apid", "etcd"), nil
+		}
+
+		got, err := client.IsControlPlaneNode(context.Background(), "10.0.0.1")
+		if err != nil || !got {
+			t.Errorf("Expected control plane, got %v, err %v", got, err)
+		}
+	})
+
+	t.Run("FalseWithoutEtcd", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return serviceList("apid", "kubelet"), nil
+		}
+
+		got, err := client.IsControlPlaneNode(context.Background(), "10.0.0.1")
+		if err != nil || got {
+			t.Errorf("Expected worker, got %v, err %v", got, err)
+		}
+	})
+
+	t.Run("ServiceListError", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return nil, fmt.Errorf("service list error")
+		}
+
+		if _, err := client.IsControlPlaneNode(context.Background(), "10.0.0.1"); err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("ClientInitError", func(t *testing.T) {
+		client := setup(t)
+		os.Unsetenv("TALOSCONFIG")
+
+		if _, err := client.IsControlPlaneNode(context.Background(), "10.0.0.1"); err == nil {
+			t.Error("Expected error, got nil")
+		}
+	})
+}

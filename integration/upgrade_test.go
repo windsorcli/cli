@@ -491,3 +491,69 @@ func seedCoreMetadata(t *testing.T, dir, tag, content string) {
 		t.Fatalf("write metadata.yaml: %v", err)
 	}
 }
+
+func TestUpgradeCluster_AcceptsMultipleControlPlaneNodes(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.5,10.0.0.6,10.0.0.7", "--image", "ghcr.io/siderolabs/installer:v1.13.0"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "invalid argument") || strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --nodes to accept several addresses, got: %s", stderr)
+	}
+}
+
+func TestUpgradeCluster_HelpDescribesSequentialControlPlanes(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	stdout, _, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--help"}, env)
+	if err != nil {
+		t.Fatalf("expected help to succeed, got: %v", err)
+	}
+	if strings.Contains(string(stdout), "in parallel") {
+		t.Errorf("expected help to drop the parallel claim, got: %s", stdout)
+	}
+	if !strings.Contains(string(stdout), "one at a time") {
+		t.Errorf("expected help to say control planes upgrade one at a time, got: %s", stdout)
+	}
+}
+
+func TestUpgradeCluster_AcceptsOfflineTimeoutFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.5,10.0.0.6", "--image", "ghcr.io/siderolabs/installer:v1.13.0", "--offline-timeout", "8m"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --offline-timeout to be a recognized flag, got: %s", stderr)
+	}
+}
+
+func TestUpgradeCluster_AcceptsTimeoutAndSkipIfCurrentFlags(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.5,10.0.0.6", "--image", "ghcr.io/siderolabs/installer:v1.13.0", "--timeout", "20m", "--skip-if-current"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --timeout and --skip-if-current to be recognized, got: %s", stderr)
+	}
+}
+
+func TestUpgradeCluster_RejectsOfflineTimeoutAboveTimeout(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.5", "--image", "ghcr.io/siderolabs/installer:v1.13.0", "--timeout", "1m", "--offline-timeout", "5m"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "cannot exceed --timeout") {
+		t.Errorf("expected an offline-timeout error, got: %s", stderr)
+	}
+}
