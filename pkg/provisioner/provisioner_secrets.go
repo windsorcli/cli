@@ -8,7 +8,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +24,13 @@ import (
 // =============================================================================
 // Constants
 // =============================================================================
+
+// applyTimeHelpers names the expression helpers whose values exist only after Terraform applies.
+// CheckSecrets skips a reference that calls one of them. Add a helper here when it reads apply output.
+var applyTimeHelpers = []string{"terraform_output"}
+
+// applyTimeCall matches a helper call such as terraform_output( and captures the helper name.
+var applyTimeCall = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 // namespaceInferenceHint is the remediation for a secret whose target namespace Windsor cannot infer.
 const namespaceInferenceHint = "Set namespaces: on the secret to choose where to place it."
@@ -56,6 +65,43 @@ type pendingPlacement struct {
 // Public Methods
 // =============================================================================
 
+// CheckSecrets resolves every secret reference of the blueprint and discards the values.
+// It runs before the first terraform apply, so an unreachable provider or a missing item fails the
+// command before Windsor changes anything. A reference that resolves to nil or to an empty string
+// fails here, as in ResolveSecrets, unless it has a ?? default. It keeps each resolved value in memory,
+// so ResolveSecrets does not fetch the same reference again. It skips a reference that calls
+// an apply-time helper (see applyTimeHelpers), because that value exists only after apply. It reports every failing reference
+// in one error.
+func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return nil
+	}
+	var errs []error
+	for _, k := range withCrdLayer(blueprint).Kustomizations {
+		for secretName, entry := range k.Secrets {
+			for key, ref := range entry.Data {
+				if callsApplyTimeHelper(ref) {
+					continue
+				}
+				value, err := i.evaluator.Evaluate(ref, "", nil, true)
+				if err != nil {
+					errs = append(errs, werror.Wrap(err, "resolving secret %q key %q", secretName, key))
+					continue
+				}
+				if err := emptySecretError(secretName, key, ref, value); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				if i.checkedSecret == nil {
+					i.checkedSecret = make(map[string]any)
+				}
+				i.checkedSecret[ref] = value
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // ResolveSecrets resolves the secrets of every flux system to plaintext before Install.
 // A misconfigured secret then fails the command before Windsor applies anything to the cluster.
 // A reference that resolves to nil or to an empty string returns an error with a remediation hint,
@@ -76,19 +122,23 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 		for secretName, entry := range k.Secrets {
 			stringData := make(map[string]string, len(entry.Data))
 			for key, ref := range entry.Data {
-				value, err := i.evaluator.Evaluate(ref, "", nil, true)
-				if err != nil {
-					return nil, werror.Wrap(err, "resolving secret %q key %q", secretName, key)
+				value, cached := i.checkedSecret[ref]
+				if !cached {
+					var err error
+					value, err = i.evaluator.Evaluate(ref, "", nil, true)
+					if err != nil {
+						return nil, werror.Wrap(err, "resolving secret %q key %q", secretName, key)
+					}
 				}
 				s := ""
 				if value != nil {
 					s = fmt.Sprint(value)
 				}
+				if err := emptySecretError(secretName, key, ref, value); err != nil {
+					return nil, err
+				}
 				if s == "" {
-					if strings.Contains(ref, "??") {
-						continue
-					}
-					return nil, werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
+					continue
 				}
 				i.shell.RegisterSecret(s)
 				stringData[key] = s
@@ -130,6 +180,28 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// callsApplyTimeHelper reports whether ref calls a helper in applyTimeHelpers.
+func callsApplyTimeHelper(ref string) bool {
+	for _, m := range applyTimeCall.FindAllStringSubmatch(ref, -1) {
+		if slices.Contains(applyTimeHelpers, m[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// emptySecretError returns an error when value is nil or an empty string and ref has no ?? default.
+// A ?? default makes the key optional, so the empty value is not an error.
+func emptySecretError(secretName, key, ref string, value any) error {
+	if value != nil && fmt.Sprint(value) != "" {
+		return nil
+	}
+	if strings.Contains(ref, "??") {
+		return nil
+	}
+	return werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
+}
 
 // placeSecrets places the resolved secrets as PlaceSecrets describes, and reports each wait and each
 // placement as progress of the owning kustomization in layers. After a placement it reconciles the

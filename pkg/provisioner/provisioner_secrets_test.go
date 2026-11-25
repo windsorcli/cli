@@ -2,6 +2,7 @@ package provisioner_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -784,6 +785,146 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 		if reconciled {
 			t.Error("Expected no reconcile when prune is disabled")
+		}
+	})
+}
+
+func TestProvisioner_CheckSecrets(t *testing.T) {
+	newProvisioner := func(mocks *ProvisionerTestMocks) *provisioner.Provisioner {
+		return provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+			ClusterClient:     mocks.ClusterClient,
+			FluxStack:         mocks.FluxStack,
+		})
+	}
+	bp := func(data map[string]string) *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
+			Name:    "gitops",
+			Secrets: map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: data}},
+		}}}
+	}
+	registerSecret := func(mocks *ProvisionerTestMocks, fn func(params []any, deferred bool) (any, error)) {
+		mocks.Runtime.Evaluator.Register("secret", fn)
+	}
+
+	t.Run("KeepsProviderOutputInError", func(t *testing.T) {
+		// Given a secret provider that fails with its own message
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) {
+			return nil, errors.New("1Password isn't signed in. op said: [ERROR] You are not signed in")
+		})
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{"password": `${secret("personal", "item", "credential")}`}))
+
+		// Then the error names the secret and keeps the provider message
+		if err == nil {
+			t.Fatal("Expected an error")
+		}
+		for _, want := range []string{`"creds"`, `"password"`, "You are not signed in"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected error to contain %q, got %v", want, err)
+			}
+		}
+	})
+
+	t.Run("ReportsEveryFailingReference", func(t *testing.T) {
+		// Given two secrets that fail
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) {
+			return nil, fmt.Errorf("missing %v", params[1])
+		})
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{
+			"a": `${secret("v", "item-a", "f")}`,
+			"b": `${secret("v", "item-b", "f")}`,
+		}))
+
+		// Then one error names both
+		if err == nil || !strings.Contains(err.Error(), "item-a") || !strings.Contains(err.Error(), "item-b") {
+			t.Errorf("Expected both failures in one error, got %v", err)
+		}
+	})
+
+	t.Run("SkipsReferenceThatNeedsTerraformOutput", func(t *testing.T) {
+		// Given a reference that calls terraform_output and a provider that would fail
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) {
+			return nil, errors.New("must not be called")
+		})
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{"token": `${secret("v", terraform_output("c", "name"), "f")}`}))
+
+		// Then the check passes
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("PassesWhenEverySecretResolves", func(t *testing.T) {
+		// Given a provider that resolves
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) { return "value", nil })
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{"token": `${secret("v", "i", "f")}`}))
+
+		// Then the check passes
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenSecretResolvesEmpty", func(t *testing.T) {
+		// Given a provider that returns an empty value
+		mocks := setupProvisionerMocks(t)
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) { return "", nil })
+
+		// When checking the secrets
+		err := newProvisioner(mocks).CheckSecrets(bp(map[string]string{"token": `${secret("v", "i", "f")}`}))
+
+		// Then the check fails with the empty-value error
+		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
+			t.Errorf("Expected an empty-value error, got %v", err)
+		}
+	})
+
+	t.Run("ResolveSecretsReusesCheckedValues", func(t *testing.T) {
+		// Given a provider that counts its calls
+		mocks := setupProvisionerMocks(t)
+		calls := 0
+		registerSecret(mocks, func(params []any, deferred bool) (any, error) {
+			calls++
+			return "value", nil
+		})
+		p := newProvisioner(mocks)
+		blueprint := bp(map[string]string{"token": `${secret("v", "i", "f")}`})
+
+		// When checking and then resolving the secrets
+		if err := p.CheckSecrets(blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		resolved, err := p.ResolveSecrets(blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the provider ran once and the value reached the result
+		if calls != 1 {
+			t.Errorf("Expected one provider call, got %d", calls)
+		}
+		if got := resolved["gitops"]["creds"].Data["token"]; got != "value" {
+			t.Errorf("Expected resolved value, got %q", got)
+		}
+	})
+
+	t.Run("NilBlueprintPasses", func(t *testing.T) {
+		if err := newProvisioner(setupProvisionerMocks(t)).CheckSecrets(nil); err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }

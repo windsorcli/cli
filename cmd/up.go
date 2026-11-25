@@ -16,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/workstation"
@@ -128,6 +129,9 @@ windsor up --continue`,
 		var halted, stopped bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", lockTimeout, func() error {
+			if err := checkSecretsBeforeApply(proj, plan); err != nil {
+				return err
+			}
 			_, h, err := proj.Up(cmd.Context())
 			if err != nil {
 				return err
@@ -167,6 +171,20 @@ windsor up --continue`,
 		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
+}
+
+// checkSecretsBeforeApply resolves the secrets that the install step of the run needs, before the
+// first terraform apply. A run that stops before the install step needs none. It returns an error
+// that holds the output of the secrets provider when a lookup fails.
+func checkSecretsBeforeApply(proj *project.Project, plan *provisioner.RunPlan) error {
+	if plan != nil && !plan.Install {
+		return nil
+	}
+	bp := proj.Composer.BlueprintHandler.Generate()
+	if err := proj.Provisioner.CheckSecrets(plan.InstallBlueprint(bp)); err != nil {
+		return werror.Wrap(err, "error resolving secrets")
+	}
+	return nil
 }
 
 // printDeferredWork prints the items Up skipped because they need elevation, as the last section

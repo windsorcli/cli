@@ -224,6 +224,9 @@ windsor bootstrap --continue`,
 		var applied, halted, stopped bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", lockTimeout, func() error {
+			if err := checkSecretsBeforeApply(proj, plan); err != nil {
+				return err
+			}
 			_, ok, h, err := proj.Bootstrap(cmd.Context(), confirmFn)
 			finishPlan(err)
 			if err != nil {

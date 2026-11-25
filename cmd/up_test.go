@@ -257,6 +257,43 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsOnUnresolvableSecretBeforeApply", func(t *testing.T) {
+		// Given a blueprint with a secret whose vault has no provider
+		mocks := setupUpTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{
+					Name: "gitops",
+					Secrets: map[string]blueprintv1alpha1.SecretEntry{
+						"ghcr-login-secret": {Data: map[string]string{"docker-password": `${secret("personal", "item", "credential")}`}},
+					},
+				}},
+			}
+		}
+		applied := false
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			applied = true
+			return false, nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		err := cmd.Execute()
+
+		// Then the command fails with the provider output and applies nothing
+		if err == nil || !strings.Contains(err.Error(), "error resolving secrets") || !strings.Contains(err.Error(), "No secrets provider handles the vault") {
+			t.Errorf("Expected a secrets error that keeps the resolver message, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected no terraform apply before the secret check passes")
+		}
+	})
+
 	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a terraform stack that fails during Up
 		mocks := setupUpTest(t)
