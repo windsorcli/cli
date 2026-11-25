@@ -367,12 +367,16 @@ jobs:
 
       - name: Fetch latest core version
         id: core_version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Fetch the latest release tag from windsorcli/core
-          LATEST_TAG=$(curl -s "https://api.github.com/repos/windsorcli/core/releases/latest" | jq -r '.tag_name')
-          if [ "$LATEST_TAG" = "null" ] || [ -z "$LATEST_TAG" ]; then
-            echo "Warning: Could not fetch latest core version, using fallback"
-            LATEST_TAG="latest"
+          LATEST_TAG=$(gh api repos/windsorcli/core/releases/latest --jq .tag_name) || {
+            echo "::error::Could not fetch the latest core release."
+            exit 1
+          }
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "::error::The latest core release has no tag name."
+            exit 1
           fi
           echo "Found latest core version: $LATEST_TAG"
           echo "PINNED_BLUEPRINT_URL=oci://ghcr.io/windsorcli/core:$LATEST_TAG" >> $GITHUB_ENV
