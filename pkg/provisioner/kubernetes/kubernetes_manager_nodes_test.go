@@ -303,9 +303,31 @@ func TestBaseKubernetesManager_DeleteKustomization_UnreachableNodePods(t *testin
 		if !strings.Contains(err.Error(), "ghost-1, ghost-2") {
 			t.Errorf("Expected error to name the nodes, got %v", err)
 		}
+		for _, want := range []string{"/fluent-bit-a on ghost-1", "/node-exporter-b on ghost-2"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected error to name the pod %q with its node, got %v", want, err)
+			}
+		}
 		we, _ := err.(*werror.WindsorError)
 		if we == nil || !strings.Contains(we.Remediation, "kubectl delete node ghost-1 ghost-2") {
 			t.Errorf("Expected a kubectl delete node remediation, got %v", err)
+		}
+	})
+
+	t.Run("CapsTheNamedPods", func(t *testing.T) {
+		// Given twelve pods that are deleting on one NotReady node
+		var pods []unstructured.Unstructured
+		for i := 0; i < 12; i++ {
+			pods = append(pods, podObject(fmt.Sprintf("pod-%02d", i), "ghost-1", true))
+		}
+		manager := stuckSetup(t, []unstructured.Unstructured{nodeObject("ghost-1", "10.0.0.1", false)}, pods, true)
+
+		// When the kustomization delete waits
+		err := manager.DeleteKustomization(context.Background(), "telemetry-install", "system-flux")
+
+		// Then the error counts all pods, names ten, and counts the rest
+		if err == nil || !strings.Contains(err.Error(), "12 pod(s)") || !strings.Contains(err.Error(), "pod-09 on ghost-1, and 2 more") || strings.Contains(err.Error(), "pod-10") {
+			t.Errorf("Expected the error to name ten pods and count two more, got %v", err)
 		}
 	})
 
