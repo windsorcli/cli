@@ -21,6 +21,9 @@ import (
 // Constants
 // =============================================================================
 
+// maxNamedPods is the number of stuck pods that the error message names. The message counts the rest.
+const maxNamedPods = 10
+
 var (
 	nodeGVR      = schema.GroupVersionResource{Version: "v1", Resource: "nodes"}
 	podGVR       = schema.GroupVersionResource{Version: "v1", Resource: "pods"}
@@ -261,10 +264,15 @@ func staleNodes(nodes []nodeState, address string, previousNames []string) ([]st
 }
 
 // describe returns the diagnosis text for pods that wait on unreachable nodes.
-// The message names each pod with its node, and the hint names the nodes to delete.
+// The message names up to maxNamedPods pods with their nodes and counts the rest.
+// The hint names the nodes to delete.
 func (u *unreachableNodePods) describe() (string, string) {
 	nodes := strings.Join(u.nodes, ", ")
-	message := fmt.Sprintf("%d pod(s) in terminating namespace(s) %s cannot finish deleting (%s). They run on node(s) %s, which are not Ready, so no kubelet can confirm the deletion", u.podCount, strings.Join(u.namespaces, ", "), strings.Join(u.pods, ", "), nodes)
+	named := u.pods
+	if len(named) > maxNamedPods {
+		named = append(slices.Clone(named[:maxNamedPods]), fmt.Sprintf("and %d more", len(named)-maxNamedPods))
+	}
+	message := fmt.Sprintf("%d pod(s) in terminating namespace(s) %s cannot finish deleting (%s). They run on node(s) %s, which are not Ready, so no kubelet can confirm the deletion", u.podCount, strings.Join(u.namespaces, ", "), strings.Join(named, ", "), nodes)
 	hint := fmt.Sprintf("If the machines are gone, run `kubectl delete node %s` and retry.", strings.Join(u.nodes, " "))
 	return message, hint
 }
