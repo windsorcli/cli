@@ -303,6 +303,11 @@ func TestBaseKubernetesManager_DeleteKustomization_UnreachableNodePods(t *testin
 		if !strings.Contains(err.Error(), "ghost-1, ghost-2") {
 			t.Errorf("Expected error to name the nodes, got %v", err)
 		}
+		for _, want := range []string{"/fluent-bit-a on ghost-1", "/node-exporter-b on ghost-2"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected error to name the pod %q with its node, got %v", want, err)
+			}
+		}
 		we, _ := err.(*werror.WindsorError)
 		if we == nil || !strings.Contains(we.Remediation, "kubectl delete node ghost-1 ghost-2") {
 			t.Errorf("Expected a kubectl delete node remediation, got %v", err)

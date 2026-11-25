@@ -42,6 +42,7 @@ type nodeState struct {
 type unreachableNodePods struct {
 	namespaces []string
 	nodes      []string
+	pods       []string
 	podCount   int
 }
 
@@ -175,6 +176,7 @@ func (k *BaseKubernetesManager) findUnreachableNodePods(entries []InventoryEntry
 				return nil
 			}
 			nodeSet[nodeName] = true
+			result.pods = append(result.pods, fmt.Sprintf("%s/%s on %s", namespace, pod.GetName(), nodeName))
 			result.podCount++
 			if !slices.Contains(result.namespaces, namespace) {
 				result.namespaces = append(result.namespaces, namespace)
@@ -259,9 +261,10 @@ func staleNodes(nodes []nodeState, address string, previousNames []string) ([]st
 }
 
 // describe returns the diagnosis text for pods that wait on unreachable nodes.
+// The message names each pod with its node, and the hint names the nodes to delete.
 func (u *unreachableNodePods) describe() (string, string) {
 	nodes := strings.Join(u.nodes, ", ")
-	message := fmt.Sprintf("%d pod(s) in terminating namespace(s) %s cannot finish deleting. They run on node(s) %s, which are not Ready, so no kubelet can confirm the deletion", u.podCount, strings.Join(u.namespaces, ", "), nodes)
+	message := fmt.Sprintf("%d pod(s) in terminating namespace(s) %s cannot finish deleting (%s). They run on node(s) %s, which are not Ready, so no kubelet can confirm the deletion", u.podCount, strings.Join(u.namespaces, ", "), strings.Join(u.pods, ", "), nodes)
 	hint := fmt.Sprintf("If the machines are gone, run `kubectl delete node %s` and retry.", strings.Join(u.nodes, " "))
 	return message, hint
 }
