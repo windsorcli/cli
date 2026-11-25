@@ -45,7 +45,7 @@ contexts/
 |------|------|-------------|
 | `blueprint.yaml` | YAML | Blueprint definition: kind, apiVersion, metadata, terraform components, kustomizations. See [Blueprint reference](blueprint.md). |
 | `metadata.yaml` | YAML | Artifact metadata used by `windsor bundle` and `windsor push`. See [Metadata reference](metadata.md). |
-| `schema.yaml` | YAML (JSON Schema 2020-12) | Validates the merged values object before render. Also supplies the defaults shown by `windsor values`. |
+| `schema.yaml` | YAML (JSON Schema 2020-12) | Validates the merged values object before render. Also supplies the defaults shown by `windsor show values`. |
 | `tests/<name>.test.yaml` | YAML | Composition tests run by `windsor test`. See [Testing reference](testing.md). |
 | `terraform/<path>/` | Directory | Local Terraform modules referenced by blueprint components. |
 | `kustomize/<path>/` | Directory | Kustomization bases and patches referenced by blueprint kustomizations. |
@@ -55,7 +55,7 @@ live under `contexts/<context-name>/`.
 
 ### Marking values sensitive
 
-Add `sensitive: true` alongside any property in `schema.yaml` (or `windsor.yaml`'s own schema) to
+Add `sensitive: true` alongside any property in `schema.yaml` to
 have that value's path redacted as `<sensitive>` wherever config is displayed — currently
 [`windsor show values`](commands/show-values.md). It doesn't change how the value is stored or
 resolved, only how it's rendered back to the operator.
@@ -79,7 +79,7 @@ this is for custom facet/context schemas that need it.
 | Path | Type | Description |
 |------|------|-------------|
 | `blueprint.yaml` | YAML | Per-context blueprint metadata. Written by `windsor init`; references the template rather than expanding it. |
-| `values.yaml` | YAML | User-supplied values for the schema. Read on every command; written by `windsor set` and `SaveConfig`. |
+| `values.yaml` | YAML | User-supplied values for the schema. Read on every command. `windsor init` and `windsor bootstrap` write it, and so does `windsor up --set`. See [Configuration reference](configuration.md). |
 | `terraform/<component-id>.tfvars` | HCL | Operator-authored variable overrides for a Terraform component. Read at plan/apply time. |
 | `terraform/<component-id>.tfvars.json` | JSON | JSON-formatted alternative to `.tfvars`. |
 | `terraform/backend.tfvars` | HCL | Optional overrides applied to the Terraform backend init. |
@@ -107,15 +107,15 @@ config under `~/`.
 provider environment variables that windsor has no native config for — Hyper-V
 (`HYPERV_USER`, `HYPERV_PASSWORD`, `HYPERV_HOST`, …) and vSphere
 (`VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_SERVER`, …) are the motivating
-cases. Use it for credentials/local values; use the `environment:` key under
-`contexts.<name>` in `windsor.yaml` for declarative, version-controlled values
+cases. Use it for credentials/local values; use the `environment:` key in
+`contexts/<context-name>/values.yaml` for declarative, version-controlled values
 shared with the team (see [Configuration reference](configuration.md)).
 
 - Standard `KEY=VALUE` lines, one per line; `#` starts a comment.
 - Values may reference secrets, e.g. `HYPERV_PASSWORD=${secret("op://vault/item/field")}`.
 - Loaded on every `windsor env` / `windsor exec` / shell hook invocation, with
-  the **lowest precedence** of any environment source — `windsor.yaml`'s
-  `environment:` key and every provider-specific printer (AWS, Azure, GCP,
+  the **lowest precedence** of any environment source — the `environment:` key
+  of the context or of the root `windsor.yaml`, and every provider-specific printer (AWS, Azure, GCP,
   Terraform, …) override a same-named `.env` key.
 - Windsor warns (without failing) if the file is readable by group or other;
   restrict it to the owner (`chmod 600`).
@@ -149,7 +149,7 @@ either the `secrets.yaml` or `secrets.enc.yaml` name. Windsor tries to decrypt e
 `secrets*.yaml`/`secrets*.yml` file it finds, in the order above.
 
 Windsor registers the SOPS provider only when `secrets.sops.enabled` is `true`. Set it in
-`contexts/<context-name>/windsor.yaml`. The root `windsor.yaml` does not read this setting. Without it,
+`contexts/<context-name>/values.yaml`. The root `windsor.yaml` does not hold this setting. Without it,
 `sops.<key>` references fail with `No secrets provider handles the vault "sops".`
 
 When a `secrets.yaml` or `secrets.yml` file fails to decrypt, Windsor refuses it with
