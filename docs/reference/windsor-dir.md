@@ -40,7 +40,7 @@ the next command that touches a file regenerates it.
 |------|------|-------------|
 | `workstation.yaml` | YAML | System-managed workstation state — VM address, runtime driver, DNS address/forwarders, provisioned flags. Distinct from operator-authored `contexts/<name>/values.yaml`. Written by the runtime during `init`/`bootstrap`/`configure`. |
 | `partial-run.yaml` | YAML | Terraform components finished by a run that `--to` stopped. `--continue` reads it. A run to the end removes it. |
-| `terraform/<component-id>/terraform.tfvars` | HCL | Generated Terraform variables for one blueprint component. All input expressions are evaluated before write. Overwritten on every `plan`/`apply`/`show terraform`. |
+| `terraform/<component-id>/terraform.tfvars` | HCL | Generated Terraform variables for one blueprint component. All input expressions are evaluated before write. Each command that composes the blueprint, such as `plan`, `apply`, or `up`, rewrites it. |
 | `.terraform/` | directory | Terraform's own working directory (provider plugins, module cache). Created by `terraform init`; cleaned by `windsor init --reset`. |
 | `.tfstate/` | directory | Local-backend Terraform state cache. Present when `terraform.backend.type=local`; cleaned by `windsor init --reset`. |
 

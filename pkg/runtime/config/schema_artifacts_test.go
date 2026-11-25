@@ -24,22 +24,16 @@ func loadArtifactValidator(t *testing.T, artifact string) *config.SchemaValidato
 	return v
 }
 
-// TestSchemaArtifacts_ConfigurationFieldsPresent guards against a Go struct field existing
-// without a corresponding property in the strict (additionalProperties: false) configuration
-// schema artifact, which silently rejects valid user config at validation time.
+// TestSchemaArtifacts_ConfigurationFieldsPresent guards against a field of the v1alpha2 context
+// header that the configuration schema artifact does not document with the same type.
 func TestSchemaArtifacts_ConfigurationFieldsPresent(t *testing.T) {
 	t.Run("azure.region validates", func(t *testing.T) {
 		// Given the production configuration schema artifact
 		validator := loadArtifactValidator(t, "configuration.yaml")
 
-		// When validating a context that sets azure.region
+		// When validating context values that set azure.region
 		result, err := validator.Validate(map[string]any{
-			"version": "v1alpha1",
-			"contexts": map[string]any{
-				"test": map[string]any{
-					"azure": map[string]any{"region": "eastus"},
-				},
-			},
+			"azure": map[string]any{"region": "eastus"},
 		})
 
 		// Then it validates without error
@@ -51,23 +45,18 @@ func TestSchemaArtifacts_ConfigurationFieldsPresent(t *testing.T) {
 		}
 	})
 
-	t.Run("azure rejects unknown fields", func(t *testing.T) {
+	t.Run("azure.region rejects a non-string value", func(t *testing.T) {
 		// Given the production configuration schema artifact
 		validator := loadArtifactValidator(t, "configuration.yaml")
 
-		// When validating an azure block with an unrecognized field
+		// When validating context values that set azure.region to a number
 		result, _ := validator.Validate(map[string]any{
-			"version": "v1alpha1",
-			"contexts": map[string]any{
-				"test": map[string]any{
-					"azure": map[string]any{"bogus": "nope"},
-				},
-			},
+			"azure": map[string]any{"region": 42},
 		})
 
 		// Then it is rejected
 		if result.Valid {
-			t.Error("expected invalid for unknown azure field")
+			t.Error("expected invalid for a non-string azure.region")
 		}
 	})
 }
