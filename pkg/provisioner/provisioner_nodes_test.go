@@ -1411,6 +1411,30 @@ func TestProvisioner_UpgradeNodes(t *testing.T) {
 		}
 	})
 
+	t.Run("AppliesNodeTimeoutToRoleReads", func(t *testing.T) {
+		// Given a per-node timeout
+		prov, _ := setup(t)
+		mocks := prov.ClusterClient.(*cluster.MockClusterClient)
+		var deadlines int
+		mocks.IsControlPlaneNodeFunc = func(ctx context.Context, node string) (bool, error) {
+			if _, ok := ctx.Deadline(); ok {
+				deadlines++
+			}
+			return false, nil
+		}
+
+		// When UpgradeNodes runs for two nodes
+		err := prov.UpgradeNodes(context.Background(), []string{"w1", "w2"}, "img", time.Minute, time.Second, false, false, nil)
+
+		// Then every role read runs under a deadline
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if deadlines != 2 {
+			t.Errorf("Expected 2 role reads with a deadline, got %d", deadlines)
+		}
+	})
+
 	t.Run("RoleReadFails", func(t *testing.T) {
 		// Given a node whose role cannot be read
 		prov, calls := setup(t)

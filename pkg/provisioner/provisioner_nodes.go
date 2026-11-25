@@ -68,7 +68,7 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 // named. Each node runs the same steps as UpgradeNode, so the next node starts only after the
 // previous one is healthy. It stops at the first failure. This keeps etcd quorum and leaves
 // workloads on the other nodes running. powercycle requests a full ACPI reboot instead of the
-// default kexec. nodeTimeout limits the whole upgrade of each node, and zero sets no limit.
+// default kexec. nodeTimeout limits the role read and the whole upgrade of each node, and zero sets no limit.
 // offlineTimeout limits the reboot wait for each node. When skipIfCurrent is true, a node that
 // already runs the image version is skipped, as in UpgradeNode. outputFunc receives status
 // messages. It returns an error when the client cannot start, a role cannot be read, or a step fails.
@@ -80,7 +80,12 @@ func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image st
 
 	var controlPlanes, workers []string
 	for _, node := range nodes {
-		isControlPlane, err := i.ClusterClient.IsControlPlaneNode(ctx, node)
+		roleCtx, cancel := ctx, context.CancelFunc(func() {})
+		if nodeTimeout > 0 {
+			roleCtx, cancel = context.WithTimeout(ctx, nodeTimeout)
+		}
+		isControlPlane, err := i.ClusterClient.IsControlPlaneNode(roleCtx, node)
+		cancel()
 		if err != nil {
 			return werror.Wrap(err, "failed to read the role of node %s", node)
 		}
