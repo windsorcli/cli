@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,13 @@ import (
 // =============================================================================
 // Constants
 // =============================================================================
+
+// applyTimeHelpers names the expression helpers whose values exist only after Terraform applies.
+// CheckSecrets skips a reference that calls one of them. Add a helper here when it reads apply output.
+var applyTimeHelpers = []string{"terraform_output"}
+
+// applyTimeCall matches a helper call such as terraform_output( and captures the helper name.
+var applyTimeCall = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 // namespaceInferenceHint is the remediation for a secret whose target namespace Windsor cannot infer.
 const namespaceInferenceHint = "Set namespaces: on the secret to choose where to place it."
@@ -62,7 +70,7 @@ type pendingPlacement struct {
 // command before Windsor changes anything. A reference that resolves to nil or to an empty string
 // fails here, as in ResolveSecrets, unless it has a ?? default. It keeps each resolved value in memory,
 // so ResolveSecrets does not fetch the same reference again. It skips a reference that calls
-// terraform_output, because that value exists only after apply. It reports every failing reference
+// an apply-time helper (see applyTimeHelpers), because that value exists only after apply. It reports every failing reference
 // in one error.
 func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
@@ -72,7 +80,7 @@ func (i *Provisioner) CheckSecrets(blueprint *blueprintv1alpha1.Blueprint) error
 	for _, k := range withCrdLayer(blueprint).Kustomizations {
 		for secretName, entry := range k.Secrets {
 			for key, ref := range entry.Data {
-				if strings.Contains(ref, "terraform_output(") {
+				if callsApplyTimeHelper(ref) {
 					continue
 				}
 				value, err := i.evaluator.Evaluate(ref, "", nil, true)
@@ -172,6 +180,16 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// callsApplyTimeHelper reports whether ref calls a helper in applyTimeHelpers.
+func callsApplyTimeHelper(ref string) bool {
+	for _, m := range applyTimeCall.FindAllStringSubmatch(ref, -1) {
+		if slices.Contains(applyTimeHelpers, m[1]) {
+			return true
+		}
+	}
+	return false
+}
 
 // emptySecretError returns an error when value is nil or an empty string and ref has no ?? default.
 // A ?? default makes the key optional, so the empty value is not an error.
