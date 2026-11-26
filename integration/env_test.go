@@ -139,7 +139,7 @@ func TestDotEnv_InjectsValueIntoWindsorEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("env: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stdout), "HYPERV_HOST=hyperv.local") {
+	if !slices.Contains(exportedEnvFrom(stdout), "HYPERV_HOST=hyperv.local") {
 		t.Errorf("expected HYPERV_HOST=hyperv.local in output, got:\n%s", stdout)
 	}
 }
@@ -185,7 +185,7 @@ func TestDotEnv_ContextEnvironmentKeyOverridesDotEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("env: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stdout), "SHARED_VAR=from-windsor-yaml") {
+	if !slices.Contains(exportedEnvFrom(stdout), "SHARED_VAR=from-windsor-yaml") {
 		t.Errorf("expected the windsor.yaml environment key to win over .env, got:\n%s", stdout)
 	}
 	if strings.Contains(string(stdout), "from-dotenv") {
@@ -230,7 +230,7 @@ func TestTerraformDotEnv_InjectedWhenCdIntoTerraformDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("env: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stdout), "HYPERV_HOST=hyperv.local") {
+	if !slices.Contains(exportedEnvFrom(stdout), "HYPERV_HOST=hyperv.local") {
 		t.Errorf("expected HYPERV_HOST=hyperv.local in output, got:\n%s", stdout)
 	}
 }
@@ -260,13 +260,16 @@ func TestTerraformDotEnv_AbsentFromHookOutsideTerraformDirectory(t *testing.T) {
 	}
 }
 
-// exportedEnvFrom parses "export KEY=VALUE" and "export KEY='VALUE'" lines from
-// `windsor env --hook` output into an env slice, simulating what the shell hook's
+// exportedEnvFrom parses "export KEY='VALUE'" and "$env:KEY='VALUE'" lines from
+// `windsor env` output into an env slice, simulating what the shell hook's
 // `eval` would have applied to the live shell before the next invocation.
 func exportedEnvFrom(stdout []byte) []string {
 	var result []string
 	for _, line := range strings.Split(string(stdout), "\n") {
 		rest, ok := strings.CutPrefix(line, "export ")
+		if !ok {
+			rest, ok = strings.CutPrefix(line, "$env:")
+		}
 		if !ok {
 			continue
 		}
@@ -575,11 +578,11 @@ environment:
 	}
 	out := string(stdout)
 	for _, want := range []string{"ROOT_ONLY=from-root", "SHARED_VAR=from-context", "CONTEXT_NAME=local"} {
-		if !strings.Contains(out, want) {
+		if !slices.Contains(exportedEnvFrom(stdout), want) {
 			t.Errorf("expected %q in output, got:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "SHARED_VAR=from-root") {
+	if slices.Contains(exportedEnvFrom(stdout), "SHARED_VAR=from-root") {
 		t.Errorf("expected the context value to override the root value, got:\n%s", out)
 	}
 }

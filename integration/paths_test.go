@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,7 +66,7 @@ func TestPaths_EnvReadsRootAndContextValues(t *testing.T) {
 	}
 
 	for _, want := range []string{"ROOT_VAR=from-root", "CONTEXT_VAR=from-context"} {
-		if !strings.Contains(string(stdout), want) {
+		if !slices.Contains(exportedEnvFrom(stdout), want) {
 			t.Errorf("expected %s in output, got:\n%s", want, stdout)
 		}
 	}
@@ -88,7 +89,7 @@ func TestPaths_EnvInjectsTerraformDotEnvInsideTheTerraformDirectory(t *testing.T
 		t.Fatalf("env: %v\nstderr: %s", err, stderr)
 	}
 
-	if !strings.Contains(string(stdout), "HYPERV_HOST=hyperv.local") {
+	if !slices.Contains(exportedEnvFrom(stdout), "HYPERV_HOST=hyperv.local") {
 		t.Errorf("expected HYPERV_HOST=hyperv.local in output, got:\n%s", stdout)
 	}
 }
