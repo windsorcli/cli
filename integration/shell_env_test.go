@@ -366,7 +366,6 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
 var knownBugs = map[string]string{
 	"fish:CASE_BACKSLASH":     "https://github.com/windsorcli/cli/issues/3925",
-	"fish:switch":             "https://github.com/windsorcli/cli/issues/3926",
 	"bash:eval":               "https://github.com/windsorcli/cli/issues/3928",
 	"zsh:eval":                "https://github.com/windsorcli/cli/issues/3928",
 	"powershell:CASE_NEWLINE": "https://github.com/windsorcli/cli/issues/3931",

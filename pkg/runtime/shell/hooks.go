@@ -52,7 +52,7 @@ var shellHooks = map[string]string{
 		`,
 	"fish": `
 		function _windsor_hook --on-event fish_prompt
-			eval (eval "$("{{.SelfPath}}" env --decrypt --hook)"; export fish | source)
+			eval (eval "$("{{.SelfPath}}" env --decrypt --hook | string replace -r '^unset ' 'set -e ')"; export fish | source)
 		end
 		`,
 	"tcsh": `

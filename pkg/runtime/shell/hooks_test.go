@@ -170,6 +170,36 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 	})
 
+	t.Run("FishRewritesUnsetToSetErase", func(t *testing.T) {
+		// Given a shell with the real template operations
+		subject, mocks := setup(t)
+		real := shell.NewShims()
+		mocks.Shims.NewTemplate = real.NewTemplate
+		mocks.Shims.TemplateParse = real.TemplateParse
+		mocks.Shims.TemplateExecute = real.TemplateExecute
+		mocks.Shims.Executable = func() (string, error) {
+			return "/usr/local/bin/windsor", nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When installing a hook for fish
+		err := subject.InstallHook("fish")
+		w.Close()
+		os.Stdout = oldStdout
+		output, _ := io.ReadAll(r)
+
+		// Then the hook rewrites unset lines to set -e before fish evaluates them
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := "string replace -r '^unset ' 'set -e '"
+		if !strings.Contains(string(output), want) {
+			t.Errorf("Expected output to contain %q, got %q", want, output)
+		}
+	})
+
 	t.Run("TcshRequestsCshEnvOutput", func(t *testing.T) {
 		// Given a shell with the real template operations
 		subject, mocks := setup(t)
