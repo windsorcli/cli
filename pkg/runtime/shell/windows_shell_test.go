@@ -214,7 +214,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 		// Given a set of environment variables to unset
 		subject, _ := setup(t)
 		envVars := []string{"VAR1", "VAR2", "VAR3"}
-		expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
+		expectedOutput := "Remove-Item Env:VAR1 -ErrorAction SilentlyContinue\nRemove-Item Env:VAR2 -ErrorAction SilentlyContinue\nRemove-Item Env:VAR3 -ErrorAction SilentlyContinue\n"
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {

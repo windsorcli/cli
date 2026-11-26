@@ -27,13 +27,14 @@ import (
 
 // UnsetEnvs generates commands to unset multiple environment variables.
 // For Windows PowerShell, this produces a Remove-Item command for each environment variable.
+// Each command ignores an absent variable, so the hook prints no error on a prompt.
 func (s *DefaultShell) UnsetEnvs(envVars []string) {
 	if len(envVars) == 0 {
 		return
 	}
 
 	for _, env := range envVars {
-		fmt.Printf("Remove-Item Env:%s\n", env)
+		fmt.Printf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", env)
 	}
 }
 
@@ -109,7 +110,7 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 	var result strings.Builder
 	for _, k := range keys {
 		if envVars[k] == "" {
-			result.WriteString(fmt.Sprintf("Remove-Item Env:%s\n", k))
+			result.WriteString(fmt.Sprintf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", k))
 		} else {
 			value := s.quoteValueForPowerShell(envVars[k])
 			result.WriteString(fmt.Sprintf("$env:%s=%s\n", k, value))

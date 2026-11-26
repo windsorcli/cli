@@ -67,7 +67,7 @@ var shellHooks = map[string]string{
 				$originalPromptBlock = $null
 		}
 		function prompt {
-				$windsorEnvScript = & "{{.SelfPath}}" env --decrypt --hook | Out-String
+				$windsorEnvScript = @(& "{{.SelfPath}}" env --decrypt --hook) -join [char]10
 				if ($windsorEnvScript) {
 						Invoke-Expression $windsorEnvScript
 				}
