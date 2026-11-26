@@ -230,6 +230,11 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	if err != nil {
 		t.Fatalf("%s session failed: %v\nstdout: %s\nstderr: %s\nscript:\n%s", d.name, err, out, stderr.String(), script.String())
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout: %q\nscript:\n%s", out, script.String())
+		}
+	})
 	phases := parsePhases(string(out))
 	fail := func(format string, args ...any) {
 		t.Errorf(format+"\nstderr: %s", append(args, stderr.String())...)
@@ -246,10 +251,11 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 			if w, ok := c.want[d.name]; ok {
 				want = w
 			}
-			if skipKnown(t, d.name, c.name) {
+			ok := got[c.name] == want
+			if knownBug(t, d.name, c.name, ok) {
 				continue
 			}
-			if got[c.name] != want {
+			if !ok {
 				fail("%s: %s = %q, want %q", phase, c.name, got[c.name], want)
 			}
 		}
@@ -285,19 +291,20 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	if sw["SHARED_VAR"] != "from-b" {
 		fail("switched: SHARED_VAR = %q, want from-b", sw["SHARED_VAR"])
 	}
-	if skipKnown(t, d.name, "switch") {
-		return
-	}
-	if sw["ONLY_A_VAR"] != unsetMarker {
-		fail("switched: ONLY_A_VAR = %q, want it unset", sw["ONLY_A_VAR"])
-	}
-	for _, c := range envCases {
-		if sw[c.name] != unsetMarker {
-			fail("switched: %s = %q, want it unset", c.name, sw[c.name])
-		}
-	}
 	if root := sw["WINDSOR_PROJECT_ROOT"]; root == "" || root == unsetMarker {
 		fail("switched: WINDSOR_PROJECT_ROOT is not set")
+	}
+	var leaked []string
+	for _, name := range append([]string{"ONLY_A_VAR"}, caseNames()...) {
+		if sw[name] != unsetMarker {
+			leaked = append(leaked, name)
+		}
+	}
+	if knownBug(t, d.name, "switch", len(leaked) == 0) {
+		return
+	}
+	if len(leaked) > 0 {
+		fail("switched: %v still set, want them unset", leaked)
 	}
 }
 
@@ -337,19 +344,37 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 
 // knownBugs maps "shell:key" to the issue that tracks a quoting or unset bug in that shell.
 // A key is a case variable name, or "switch" for the unset checks after a context switch.
+// The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
 var knownBugs = map[string]string{
 	"fish:CASE_BACKSLASH": "https://github.com/windsorcli/cli/issues/3925",
 	"fish:switch":         "https://github.com/windsorcli/cli/issues/3926",
 }
 
-// skipKnown reports whether the shell has a tracked bug for key. It logs the issue and the caller skips the check.
-func skipKnown(t *testing.T, shell, key string) bool {
+// knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.
+// It returns false when the shell has no tracked bug for key, and the caller reports a failure as usual.
+// Otherwise it returns true. A failing check logs the issue. A passing check fails the test,
+// because the bug is fixed and the entry MUST leave knownBugs.
+func knownBug(t *testing.T, shell, key string, ok bool) bool {
 	t.Helper()
-	issue, ok := knownBugs[shell+":"+key]
-	if ok {
-		t.Logf("skipping %s for %s: known bug %s", key, shell, issue)
+	issue, tracked := knownBugs[shell+":"+key]
+	if !tracked {
+		return false
 	}
-	return ok
+	if ok {
+		t.Errorf("%s for %s now passes: remove %q from knownBugs (%s)", key, shell, shell+":"+key, issue)
+	} else {
+		t.Logf("%s for %s still fails: known bug %s", key, shell, issue)
+	}
+	return true
+}
+
+// caseNames returns the variable name of each case.
+func caseNames() []string {
+	names := make([]string, 0, len(envCases))
+	for _, c := range envCases {
+		names = append(names, c.name)
+	}
+	return names
 }
 
 var phasePattern = regexp.MustCompile(`(?s)\[\[(\w+)\]\]|<<(\w+)\|(.*?)\|>>`)
