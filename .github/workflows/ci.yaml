@@ -159,6 +159,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Use a long temp path (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "D:\tmp"
+          echo "TMP=D:\tmp" >> $env:GITHUB_ENV
+          echo "TEMP=D:\tmp" >> $env:GITHUB_ENV
+
       - name: Install shells (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: sudo apt-get update && sudo apt-get install -y fish tcsh zsh
