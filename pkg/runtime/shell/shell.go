@@ -215,6 +215,8 @@ func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 // quoteValueForShell quotes a value appropriately for shell evaluation.
 // For Unix shells, uses single quotes with proper escaping. For Windows PowerShell, uses single quotes with PowerShell-style escaping.
 // If useDoubleQuotes is true and the value doesn't need quoting, uses double quotes; otherwise uses single quotes when needed.
+// Each backslash is written outside the single quotes as \\, which bash, zsh, and fish all read as one backslash.
+// Inside single quotes, fish reads \\ as one backslash, so a backslash left inside would lose a character.
 func (s *DefaultShell) quoteValueForShell(value string, useDoubleQuotes bool) string {
 	if !strings.ContainsAny(value, "[]{}()\"'$`\\ \t\n&|;<>*?~#") {
 		if useDoubleQuotes {
@@ -222,7 +224,9 @@ func (s *DefaultShell) quoteValueForShell(value string, useDoubleQuotes bool) st
 		}
 		return value
 	}
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	quoted := strings.ReplaceAll(value, "'", "'\"'\"'")
+	quoted = strings.ReplaceAll(quoted, `\`, `'\\'`)
+	return "'" + quoted + "'"
 }
 
 // =============================================================================

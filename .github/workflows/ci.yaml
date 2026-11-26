@@ -134,6 +134,46 @@ jobs:
           go build -ldflags "-s -w -X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o NUL cmd\windsor\main.go
         shell: pwsh
 
+  shell-env:
+    name: shell-env (${{ matrix.shell }}, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shell: bash, os: ubuntu-latest }
+          - { shell: zsh, os: ubuntu-latest }
+          - { shell: fish, os: ubuntu-latest }
+          - { shell: tcsh, os: ubuntu-latest }
+          - { shell: zsh, os: macos-latest }
+          - { shell: powershell, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    env:
+      WINDSOR_TEST_SHELL: ${{ matrix.shell }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7 renovate: depName=actions/setup-go
+        with:
+          go-version-file: go.mod
+
+      - name: Use a long temp path (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "D:\tmp"
+          echo "TMP=D:\tmp" >> $env:GITHUB_ENV
+          echo "TEMP=D:\tmp" >> $env:GITHUB_ENV
+
+      - name: Install shells (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get update && sudo apt-get install -y fish tcsh zsh
+
+      - name: Run shell env tests
+        run: go test -tags integration ./integration/ -run TestShellEnv -count=1 -v
+
   sast-scan:
     runs-on: ubuntu-latest
     steps:
