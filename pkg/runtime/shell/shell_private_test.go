@@ -297,6 +297,9 @@ func TestDefaultShell_quoteValueForShell(t *testing.T) {
 			{"WithDollars", "value$test", "'value$test'"},
 			{"WithBrackets", "[test]", "'[test]'"},
 			{"SimpleValue", "simple", "simple"},
+			{"SingleBackslash", `a\b`, `'a'\\'b'`},
+			{"DoubleBackslash", `a\b\\c`, `'a'\\'b'\\''\\'c'`},
+			{"TrailingBackslash", `a\`, `'a'\\''`},
 		}
 
 		for _, tc := range testCases {
