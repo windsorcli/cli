@@ -127,6 +127,24 @@ func (rt *Runtime) ManagedNames() (envs, aliases []string) {
 	return splitNames(rt.Shims.Getenv("WINDSOR_MANAGED_ENV")), splitNames(rt.Shims.Getenv("WINDSOR_MANAGED_ALIAS"))
 }
 
+// ManagedRemovals returns an empty value for each managed env var and alias, and for the two managed lists.
+// An empty value renders as an unset command. When nothing is managed, both maps are empty.
+func (rt *Runtime) ManagedRemovals() (envVars, aliases map[string]string) {
+	envs, aliasNames := rt.ManagedNames()
+	envVars = make(map[string]string, len(envs)+2)
+	aliases = make(map[string]string, len(aliasNames))
+	if len(envs) == 0 && len(aliasNames) == 0 {
+		return envVars, aliases
+	}
+	for _, name := range append(envs, "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS") {
+		envVars[name] = ""
+	}
+	for _, name := range aliasNames {
+		aliases[name] = ""
+	}
+	return envVars, aliases
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================

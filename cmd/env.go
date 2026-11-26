@@ -60,6 +60,7 @@ eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 
 		rt := runtime.NewRuntime(rtOpts...)
 		if hook && rt.Global {
+			printManagedRemovals(cmd, rt, shellName == "tcsh")
 			return nil
 		}
 		if hook {
@@ -75,6 +76,7 @@ eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 		}
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			if hook {
+				printManagedRemovals(cmd, rt, shellName == "tcsh")
 				return nil
 			}
 			return werror.New("not in a trusted directory", trustDirectoryHint, err)
@@ -151,4 +153,28 @@ func init() {
 	envCmd.Flags().String("shell", "", "Print setenv commands for the given shell instead of POSIX export commands. Only tcsh is supported.")
 	envCmd.Flags().Bool("hook", false, "Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")
 	rootCmd.AddCommand(envCmd)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// printManagedRemovals prints unset commands for the env vars and aliases that the last hook run set.
+// The hook calls it outside a trusted project, so the shell does not keep the previous project's values.
+func printManagedRemovals(cmd *cobra.Command, rt *runtime.Runtime, tcsh bool) {
+	envVars, aliases := rt.ManagedRemovals()
+	if len(envVars) == 0 && len(aliases) == 0 {
+		return
+	}
+	if tcsh {
+		fmt.Fprint(cmd.OutOrStdout(), shell.RenderCsh(envVars, aliases))
+		return
+	}
+	if rt.Shell == nil {
+		return
+	}
+	fmt.Fprint(cmd.OutOrStdout(), rt.Shell.RenderEnvVars(envVars, true))
+	if len(aliases) > 0 {
+		fmt.Fprint(cmd.OutOrStdout(), rt.Shell.RenderAliases(aliases))
+	}
 }

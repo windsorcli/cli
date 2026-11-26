@@ -382,28 +382,132 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("HookSkippedInGlobalMode", func(t *testing.T) {
-		// Given a runtime running in global mode whose trust check would fail if invoked
+	t.Run("HookUnsetsManagedNamesInGlobalMode", func(t *testing.T) {
+		// Given a shell that left a project, with names that the last hook run set
 		stdout, _ := setupOutputCapture(t)
 		mocks := setupMocks(t)
 		mocks.Runtime.Global = true
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("should not be called")
+		t.Setenv("WINDSOR_MANAGED_ENV", "KUBECONFIG,TALOSCONFIG")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "k")
+		var gotEnv, gotAliases map[string]string
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			if !export {
+				t.Error("Expected export to be true in hook mode")
+			}
+			gotEnv = envVars
+			return "unset KUBECONFIG\n"
 		}
-
-		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
-		cliCmd.RootCmd().SetContext(ctx)
+		mocks.Shell.RenderAliasesFunc = func(aliases map[string]string) string {
+			gotAliases = aliases
+			return "unalias k\n"
+		}
+		setupTestContext(t, mocks)
 
 		// When executing env --hook
 		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
 		err := cliCmd.Execute()
 
-		// Then it should succeed silently without running trust checks or emitting output
+		// Then it unsets each managed name and both managed lists
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		wantEnv := []string{"KUBECONFIG", "TALOSCONFIG", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"}
+		if len(gotEnv) != len(wantEnv) {
+			t.Errorf("Expected %d env removals, got %v", len(wantEnv), gotEnv)
+		}
+		for _, name := range wantEnv {
+			if value, ok := gotEnv[name]; !ok || value != "" {
+				t.Errorf("Expected an empty value for %s, got %v", name, gotEnv)
+			}
+		}
+		if value, ok := gotAliases["k"]; !ok || value != "" || len(gotAliases) != 1 {
+			t.Errorf("Expected an empty value for alias k, got %v", gotAliases)
+		}
+		// And it prints the rendered commands
+		if stdout.String() != "unset KUBECONFIG\nunalias k\n" {
+			t.Errorf("Expected the rendered unset commands, got: %q", stdout.String())
+		}
+	})
+
+	t.Run("HookUnsetsManagedNamesInUntrustedDirectory", func(t *testing.T) {
+		// Given an untrusted directory and names that the last hook run set
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not trusted")
+		}
+		t.Setenv("WINDSOR_MANAGED_ENV", "KUBECONFIG")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "k")
+		setupTestContext(t, mocks)
+		t.Cleanup(func() { resetEnvFlags(t) })
+
+		// When executing env --hook for tcsh
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook", "--shell", "tcsh"})
+		err := cliCmd.Execute()
+
+		// Then it prints tcsh unset commands for each managed name and both managed lists
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		want := "unsetenv KUBECONFIG;\nunsetenv WINDSOR_MANAGED_ALIAS;\nunsetenv WINDSOR_MANAGED_ENV;\nunalias k;\n"
+		if stdout.String() != want {
+			t.Errorf("Expected %q, got: %q", want, stdout.String())
+		}
+	})
+
+	t.Run("HookPrintsNothingWhenNothingIsManaged", func(t *testing.T) {
+		// Given global mode, an empty managed list, and a trust check that fails if called
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Runtime.Global = true
+		t.Setenv("WINDSOR_MANAGED_ENV", "")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "")
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("should not be called")
+		}
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			t.Errorf("Expected no render call, got %v", envVars)
+			return ""
+		}
+		setupTestContext(t, mocks)
+
+		// When executing env --hook
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
+
+		// Then it succeeds and prints nothing
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 		if stdout.String() != "" {
-			t.Errorf("Expected no stdout output in global hook mode, got: %q", stdout.String())
+			t.Errorf("Expected no stdout output, got: %q", stdout.String())
+		}
+	})
+
+	t.Run("ReturnsUntrustedErrorWithoutHook", func(t *testing.T) {
+		// Given an untrusted directory and names that a hook run set
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not trusted")
+		}
+		t.Setenv("WINDSOR_MANAGED_ENV", "KUBECONFIG")
+		cliCmd.EnvCmd.SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime))
+		_ = cliCmd.EnvCmd.Flags().Set("hook", "false")
+		t.Cleanup(func() {
+			cliCmd.EnvCmd.SetContext(context.Background())
+			resetEnvFlags(t)
+		})
+
+		// When running env without --hook
+		err := cliCmd.EnvCmd.RunE(cliCmd.EnvCmd, []string{})
+
+		// Then it returns the trust error and prints no unset commands
+		if err == nil || !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected the trusted directory error, got: %v", err)
+		}
+		if stdout.String() != "" {
+			t.Errorf("Expected no stdout output, got: %q", stdout.String())
 		}
 	})
 }
