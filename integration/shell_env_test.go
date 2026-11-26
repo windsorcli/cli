@@ -116,7 +116,9 @@ var shellDrivers = []shellDriver{
 		trailer: "[Console]::Error.Write('PWD=' + $PWD.Path + [Environment]::NewLine + ($Error | Out-String))\n",
 		args:    func(script string) []string { return []string{"-NoProfile", "-File", script} },
 		source:  func(hookFile string) string { return "Invoke-Expression (Get-Content -Raw " + sq(hookFile) + ")\n" },
-		runHook: func() string { return "prompt | Out-Null\n" },
+		runHook: func() string {
+			return "$hookErrors = @(prompt 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })\nif ($hookErrors) { [Console]::Error.Write('HOOK-ERROR ' + ($hookErrors | Out-String)) }\n"
+		},
 		evalEnv: func(bin string) string { return "& " + sq(bin) + " env --decrypt | Out-String | Invoke-Expression\n" },
 		run: func(bin string, args ...string) string {
 			return "& " + sq(bin) + " " + strings.Join(args, " ") + " | Out-Null\n"
@@ -246,8 +248,8 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 		}
 	})
 	phases := parsePhases(string(out))
-	if mode == "hook" && strings.Contains(stderr.String(), "Cannot find path") {
-		t.Errorf("%s hook printed an error for an absent variable\nstderr: %s", d.name, stderr.String())
+	if mode == "hook" && strings.Contains(stderr.String(), "HOOK-ERROR") {
+		t.Errorf("%s hook printed an error\nstderr: %s", d.name, stderr.String())
 	}
 	var failures []string
 	fail := func(format string, args ...any) {

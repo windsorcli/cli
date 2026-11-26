@@ -46,7 +46,7 @@ func (s *DefaultShell) UnsetAlias(aliases []string) {
 	}
 
 	for _, alias := range aliases {
-		fmt.Printf("Remove-Item Alias:%s\n", alias)
+		fmt.Printf("Remove-Item Alias:%s -ErrorAction SilentlyContinue\n", alias)
 	}
 }
 
@@ -61,7 +61,7 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 	var result strings.Builder
 	for _, k := range keys {
 		if aliases[k] == "" {
-			result.WriteString(fmt.Sprintf("Remove-Item Alias:%s\n", k))
+			result.WriteString(fmt.Sprintf("Remove-Item Alias:%s -ErrorAction SilentlyContinue\n", k))
 		} else {
 			result.WriteString(fmt.Sprintf("Set-Alias %s '%s'\n", k, aliases[k]))
 		}
