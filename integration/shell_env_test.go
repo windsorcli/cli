@@ -113,6 +113,7 @@ var shellDrivers = []shellDriver{
 	},
 	{
 		name: "powershell", binary: "pwsh", hookName: "powershell", ext: ".ps1", windowsOnly: true,
+		trailer: "[Console]::Error.Write('PWD=' + $PWD.Path + [Environment]::NewLine + ($Error | Out-String))\n",
 		args:    func(script string) []string { return []string{"-NoProfile", "-File", script} },
 		source:  func(hookFile string) string { return "Invoke-Expression (Get-Content -Raw " + sq(hookFile) + ")\n" },
 		runHook: func() string { return "prompt | Out-Null\n" },
@@ -364,10 +365,11 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // A key is a case variable name, "eval" for the eval path, or "switch" for the unset checks after a context switch.
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
 var knownBugs = map[string]string{
-	"fish:CASE_BACKSLASH": "https://github.com/windsorcli/cli/issues/3925",
-	"bash:eval":           "https://github.com/windsorcli/cli/issues/3928",
-	"zsh:eval":            "https://github.com/windsorcli/cli/issues/3928",
-	"powershell:eval":     "https://github.com/windsorcli/cli/issues/3928",
+	"fish:CASE_BACKSLASH":     "https://github.com/windsorcli/cli/issues/3925",
+	"bash:eval":               "https://github.com/windsorcli/cli/issues/3928",
+	"zsh:eval":                "https://github.com/windsorcli/cli/issues/3928",
+	"powershell:CASE_NEWLINE": "https://github.com/windsorcli/cli/issues/3931",
+	"powershell:eval":         "https://github.com/windsorcli/cli/issues/3928",
 }
 
 // knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.
