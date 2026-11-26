@@ -20,7 +20,7 @@ require (
 	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/package-url/packageurl-go v0.1.7
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.14.6
+	github.com/siderolabs/talos/pkg/machinery v1.14.7
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/zclconf/go-cty v1.20.0
