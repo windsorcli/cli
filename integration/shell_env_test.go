@@ -39,6 +39,7 @@ type shellDriver struct {
 	run         func(bin string, args ...string) string
 	print       func(name string) string
 	marker      func(phase string) string
+	trailer     string // optional script text run last, for diagnostics
 }
 
 // envCase is one variable that the env-a context sets. A value in want replaces value for a shell that cannot carry it.
