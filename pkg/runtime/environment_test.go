@@ -560,3 +560,43 @@ func TestRuntime_ManagedNames(t *testing.T) {
 		}
 	})
 }
+
+func TestRuntime_ManagedRemovals(t *testing.T) {
+	t.Run("RemovesManagedNamesAndLists", func(t *testing.T) {
+		// Given managed env and alias lists
+		t.Setenv("WINDSOR_MANAGED_ENV", "KUBECONFIG")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "k")
+		mocks := setupRuntimeMocks(t)
+
+		// When the removals are built
+		envVars, aliases := mocks.Runtime.ManagedRemovals()
+
+		// Then each managed name and both lists have an empty value
+		for _, name := range []string{"KUBECONFIG", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"} {
+			if value, ok := envVars[name]; !ok || value != "" {
+				t.Errorf("Expected an empty value for %s, got %v", name, envVars)
+			}
+		}
+		if len(envVars) != 3 {
+			t.Errorf("Expected 3 env removals, got %v", envVars)
+		}
+		if value, ok := aliases["k"]; !ok || value != "" || len(aliases) != 1 {
+			t.Errorf("Expected an empty value for alias k, got %v", aliases)
+		}
+	})
+
+	t.Run("ReturnsNothingWhenNothingIsManaged", func(t *testing.T) {
+		// Given no managed lists
+		t.Setenv("WINDSOR_MANAGED_ENV", "")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "")
+		mocks := setupRuntimeMocks(t)
+
+		// When the removals are built
+		envVars, aliases := mocks.Runtime.ManagedRemovals()
+
+		// Then both maps are empty
+		if len(envVars) != 0 || len(aliases) != 0 {
+			t.Errorf("Expected no removals, got %v and %v", envVars, aliases)
+		}
+	})
+}

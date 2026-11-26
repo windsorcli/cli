@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
@@ -25,6 +26,12 @@ const WindsorNetworkPrefix = "windsor-"
 
 // DockerComposeProjectPrefix is the prefix of the com.docker.compose.project label of a context.
 const DockerComposeProjectPrefix = "workstation-windsor-"
+
+// dockerProjectLabel is the label that names the compose project that owns a Docker resource.
+const dockerProjectLabel = "com.docker.compose.project"
+
+// talosVolumePattern matches the name of a Talos node volume, for example controlplane_1_var.
+var talosVolumePattern = regexp.MustCompile(`^(controlplane|worker)_[0-9]+_`)
 
 // =============================================================================
 // Types
@@ -55,11 +62,12 @@ func NewDockerVirt(rt *runtime.Runtime) *DockerVirt {
 
 // Up checks that the Docker daemon answers, because Terraform or compose start the containers.
 // It returns one error that names the endpoint when the daemon does not answer.
+// It then checks that no other project owns the Talos volumes or the network of this context.
 func (v *DockerVirt) Up(ctx context.Context) error {
 	if _, err := v.shell.ExecSilent("docker", "version", "--format", "{{.Server.Version}}"); err != nil {
 		return fmt.Errorf("Docker isn't running%s. Start Docker and run windsor up again", v.daemonEndpointHint())
 	}
-	return nil
+	return v.checkForeignResources()
 }
 
 // WriteConfig does nothing.
@@ -111,6 +119,73 @@ func (v *DockerVirt) Down(ctx context.Context) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// checkForeignResources fails when a Talos volume or the network of this context belongs to another project.
+// A resource is foreign when its com.docker.compose.project label is missing or is not workstation-windsor-<context>.
+// Docker reuses a resource that has the name, so a foreign resource gives this project the state of another project.
+// It matches the volumes by the Talos node name pattern and the network by the name windsor-<context>.
+// It returns nil when it cannot list the resources, because the apply then reports the real failure.
+func (v *DockerVirt) checkForeignResources() error {
+	contextName := v.configHandler.GetContext()
+	projectLabelValue := DockerComposeProjectPrefix + contextName
+	netName := WindsorNetworkPrefix + contextName
+
+	var found []string
+	var removals []string
+	volumeRows, err := v.listWithProjects("volume")
+	if err != nil {
+		return nil
+	}
+	for _, row := range volumeRows {
+		if talosVolumePattern.MatchString(row[0]) && row[1] != projectLabelValue {
+			found = append(found, describeForeign("volume", row[0], row[1]))
+			removals = append(removals, "docker volume rm "+row[0])
+		}
+	}
+	networkRows, err := v.listWithProjects("network")
+	if err != nil {
+		return nil
+	}
+	for _, row := range networkRows {
+		if row[0] == netName && row[1] != projectLabelValue {
+			found = append(found, describeForeign("network", row[0], row[1]))
+			removals = append(removals, "docker network rm "+row[0])
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	return fmt.Errorf("Another project owns Docker resources that windsor up would reuse:\n  %s\nRun windsor down in the project that owns them, or remove them:\n  %s",
+		strings.Join(found, "\n  "), strings.Join(removals, "\n  "))
+}
+
+// listWithProjects lists the Docker resources of kind (volume or network).
+// It returns one row per resource: the name and the value of the com.docker.compose.project label.
+// The label value is empty when the resource has no label.
+func (v *DockerVirt) listWithProjects(kind string) ([][2]string, error) {
+	out, err := v.shell.ExecSilent("docker", kind, "ls", "--format", `{{.Name}}|{{.Label "`+dockerProjectLabel+`"}}`)
+	if err != nil {
+		return nil, err
+	}
+	var rows [][2]string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name, project, ok := strings.Cut(strings.TrimSpace(line), "|")
+		if !ok {
+			continue
+		}
+		rows = append(rows, [2]string{name, project})
+	}
+	return rows, nil
+}
+
+// describeForeign returns one line for the error that names a foreign resource and its owner.
+// It says that the resource has no project label when project is empty.
+func describeForeign(kind, name, project string) string {
+	if project == "" {
+		return fmt.Sprintf("%s %s (no project label)", kind, name)
+	}
+	return fmt.Sprintf("%s %s (project %s)", kind, name, project)
+}
 
 // daemonSocketMissing reports whether DOCKER_HOST names a unix socket that does not exist.
 // Any other endpoint (unset, npipe, tcp, ssh) or any other Stat error returns false, so cleanup proceeds.

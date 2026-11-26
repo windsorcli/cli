@@ -24,6 +24,34 @@ func setupDockerVirt(t *testing.T) (*fixture, *virt.DockerVirt) {
 	return f, dockerVirt
 }
 
+// dockerListStub returns an ExecSilent stub that answers docker version and the volume and network listings.
+func dockerListStub(volumes, networks string) func(string, ...string) (string, error) {
+	return func(command string, args ...string) (string, error) {
+		switch {
+		case len(args) > 0 && args[0] == "version":
+			return "27.0.0", nil
+		case len(args) > 1 && args[0] == "volume" && args[1] == "ls":
+			return volumes, nil
+		case len(args) > 1 && args[0] == "network" && args[1] == "ls":
+			return networks, nil
+		}
+		return "", nil
+	}
+}
+
+// assertErrorContains fails the test when err is nil or its text lacks one of the parts.
+func assertErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("Expected an error, got nil")
+	}
+	for _, part := range parts {
+		if !strings.Contains(err.Error(), part) {
+			t.Errorf("Expected error to contain %q, got %v", part, err)
+		}
+	}
+}
+
 // =============================================================================
 // Test Constructor
 // =============================================================================
@@ -130,6 +158,92 @@ func TestDockerVirt_Up(t *testing.T) {
 		want := "Docker isn't running. Start Docker and run windsor up again"
 		if err == nil || err.Error() != want {
 			t.Errorf("Expected %q, got %v", want, err)
+		}
+	})
+
+	t.Run("FailsWhenAnotherProjectOwnsAVolume", func(t *testing.T) {
+		// Given a Talos volume that another project labeled
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = dockerListStub("controlplane_1_var|workstation-windsor-other\nworker_2_opt|workstation-windsor-local\nmyvol|", "bridge|")
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then the error names the volume, its owner, and both fixes
+		assertErrorContains(t, err, "volume controlplane_1_var (project workstation-windsor-other)", "windsor down", "docker volume rm controlplane_1_var")
+		if strings.Contains(err.Error(), "worker_2_opt") || strings.Contains(err.Error(), "myvol") {
+			t.Errorf("Expected only the foreign volume, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenAnotherProjectOwnsTheNetwork", func(t *testing.T) {
+		// Given a network of this context that another project labeled
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = dockerListStub("", "bridge|\nwindsor-local|workstation-windsor-other")
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then the error names the network, its owner, and the removal command
+		assertErrorContains(t, err, "network windsor-local (project workstation-windsor-other)", "docker network rm windsor-local")
+	})
+
+	t.Run("FailsWhenAResourceHasNoLabel", func(t *testing.T) {
+		// Given an unlabeled Talos volume and an unlabeled network of this context
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = dockerListStub("controlplane_1_system_state|", "windsor-local|")
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then the error says that both have no project label
+		assertErrorContains(t, err, "volume controlplane_1_system_state (no project label)", "network windsor-local (no project label)")
+	})
+
+	t.Run("PassesWhenThisProjectOwnsTheResources", func(t *testing.T) {
+		// Given Talos volumes and a network that carry the label of this context
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = dockerListStub("controlplane_1_var|workstation-windsor-local\nworker_1_opt|workstation-windsor-local", "windsor-local|workstation-windsor-local")
+
+		// When calling Up a second time in the same project
+		err := dockerVirt.Up(f.ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("PassesWhenNoResourceMatches", func(t *testing.T) {
+		// Given no Talos volume and no network of this context
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = dockerListStub("myvol|\nvar_1_data|", "bridge|\nwindsor-other|workstation-windsor-other")
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("PassesWhenListingFails", func(t *testing.T) {
+		// Given a daemon that answers docker version but fails the listings
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "version" {
+				return "27.0.0", nil
+			}
+			return "", fmt.Errorf("list failed")
+		}
+
+		// When calling Up
+		err := dockerVirt.Up(f.ctx)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
