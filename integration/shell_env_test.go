@@ -113,6 +113,7 @@ var shellDrivers = []shellDriver{
 	},
 	{
 		name: "powershell", binary: "pwsh", hookName: "powershell", ext: ".ps1", windowsOnly: true,
+		trailer: "[Console]::Error.Write('PWD=' + $PWD.Path + [Environment]::NewLine + ($Error | Out-String))\n",
 		args:    func(script string) []string { return []string{"-NoProfile", "-File", script} },
 		source:  func(hookFile string) string { return "Invoke-Expression (Get-Content -Raw " + sq(hookFile) + ")\n" },
 		runHook: func() string { return "prompt | Out-Null\n" },
