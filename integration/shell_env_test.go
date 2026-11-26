@@ -369,8 +369,7 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // knownBugs maps "shell:key" to the issue that tracks a quoting or unset bug in that shell.
 // A key is a case variable name, "eval" for the eval path, or "switch" for the unset checks after a context switch.
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
-var knownBugs = map[string]string{
-}
+var knownBugs = map[string]string{}
 
 // knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.
 // It returns false when the shell has no tracked bug for key, and the caller reports a failure as usual.
