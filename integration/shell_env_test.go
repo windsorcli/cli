@@ -365,11 +365,12 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // A key is a case variable name, "eval" for the eval path, or "switch" for the unset checks after a context switch.
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
 var knownBugs = map[string]string{
-	"fish:CASE_BACKSLASH": "https://github.com/windsorcli/cli/issues/3925",
-	"fish:switch":         "https://github.com/windsorcli/cli/issues/3926",
-	"bash:eval":           "https://github.com/windsorcli/cli/issues/3928",
-	"zsh:eval":            "https://github.com/windsorcli/cli/issues/3928",
-	"powershell:eval":     "https://github.com/windsorcli/cli/issues/3928",
+	"fish:CASE_BACKSLASH":     "https://github.com/windsorcli/cli/issues/3925",
+	"fish:switch":             "https://github.com/windsorcli/cli/issues/3926",
+	"bash:eval":               "https://github.com/windsorcli/cli/issues/3928",
+	"zsh:eval":                "https://github.com/windsorcli/cli/issues/3928",
+	"powershell:CASE_NEWLINE": "https://github.com/windsorcli/cli/issues/3931",
+	"powershell:eval":         "https://github.com/windsorcli/cli/issues/3928",
 }
 
 // knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.
