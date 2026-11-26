@@ -34,7 +34,7 @@ func globalModeEnv(t *testing.T) (workDir string, env []string, homeDir string) 
 
 // TestEnv_HookIsSilentInGlobalMode verifies that `windsor env --hook` returns
 // silently (no output, no error) when run from a directory with no ancestral
-// windsor.yaml. Shell hook integrations rely on this silent no-op so prompts
+// windsor.yaml and no names that a previous hook run set. Shell hook integrations rely on this silent no-op so prompts
 // don't emit stray exports in non-Windsor directories.
 func TestEnv_HookIsSilentInGlobalMode(t *testing.T) {
 	t.Parallel()
@@ -46,6 +46,41 @@ func TestEnv_HookIsSilentInGlobalMode(t *testing.T) {
 	}
 	if len(stdout) != 0 {
 		t.Errorf("expected empty stdout in global mode, got: %q", stdout)
+	}
+}
+
+// TestEnv_HookUnsetsManagedNamesInGlobalMode verifies that `windsor env --hook`
+// unsets the names that a previous hook run set, after the shell leaves a project.
+func TestEnv_HookUnsetsManagedNamesInGlobalMode(t *testing.T) {
+	t.Parallel()
+	workDir, env, _ := globalModeEnv(t)
+	env = append(env, "WINDSOR_MANAGED_ENV=KUBECONFIG", "WINDSOR_MANAGED_ALIAS=k", "KUBECONFIG=/tmp/kubeconfig")
+
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"env", "--hook"}, env)
+	if err != nil {
+		t.Fatalf("env --hook: %v\nstderr: %s", err, stderr)
+	}
+	for _, line := range []string{"unset KUBECONFIG\n", "unset WINDSOR_MANAGED_ENV\n", "unset WINDSOR_MANAGED_ALIAS\n", "unalias k\n"} {
+		if !strings.Contains(string(stdout), line) {
+			t.Errorf("expected %q in stdout, got: %q", line, stdout)
+		}
+	}
+}
+
+// TestEnv_HookUnsetsManagedNamesInUntrustedProject verifies that `windsor env --hook`
+// unsets the names that a previous hook run set, when the project is not trusted.
+func TestEnv_HookUnsetsManagedNamesInUntrustedProject(t *testing.T) {
+	t.Parallel()
+	workDir, env := helpers.CopyFixtureOnly(t, "default")
+	env = append(env, "WINDSOR_MANAGED_ENV=KUBECONFIG", "KUBECONFIG=/tmp/kubeconfig")
+
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"env", "--hook", "--shell", "tcsh"}, env)
+	if err != nil {
+		t.Fatalf("env --hook: %v\nstderr: %s", err, stderr)
+	}
+	want := "unsetenv KUBECONFIG;\nunsetenv WINDSOR_MANAGED_ALIAS;\nunsetenv WINDSOR_MANAGED_ENV;\n"
+	if string(stdout) != want {
+		t.Errorf("expected %q, got: %q", want, stdout)
 	}
 }
 
