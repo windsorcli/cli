@@ -179,11 +179,13 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	bin := helpers.BinaryPath
 
 	var script strings.Builder
+	var hookText []byte
 	if mode == "hook" {
 		hookOut, stderr, err := helpers.RunCLI(dir, []string{"hook", d.hookName}, env)
 		if err != nil {
 			t.Fatalf("hook %s: %v\nstderr: %s", d.hookName, err, stderr)
 		}
+		hookText = hookOut
 		hookFile := filepath.Join(t.TempDir(), "hook"+d.ext)
 		if err := os.WriteFile(hookFile, hookOut, 0600); err != nil {
 			t.Fatalf("write hook: %v", err)
@@ -212,6 +214,7 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	script.WriteString(load())
 	dump("switched")
 
+	script.WriteString(d.trailer)
 	scriptFile := filepath.Join(t.TempDir(), "session"+d.ext)
 	if err := os.WriteFile(scriptFile, []byte(script.String()), 0600); err != nil {
 		t.Fatalf("write script: %v", err)
@@ -232,6 +235,7 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
+			t.Logf("hook:\n%s", hookText)
 			t.Logf("stdout: %q\nscript:\n%s", out, script.String())
 			dbgOut, dbgErr, dbgRun := helpers.RunCLI(dir, []string{"env", "--decrypt"}, env)
 			hookOut2, hookErr2, hookRun2 := helpers.RunCLI(dir, []string{"env", "--decrypt", "--hook"}, env)
