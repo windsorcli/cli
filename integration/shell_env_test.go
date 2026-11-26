@@ -339,7 +339,6 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // A key is a case variable name, or "switch" for the unset checks after a context switch.
 var knownBugs = map[string]string{
 	"fish:CASE_BACKSLASH": "https://github.com/windsorcli/cli/issues/3925",
-	"fish:switch":         "https://github.com/windsorcli/cli/issues/3926",
 }
 
 // skipKnown reports whether the shell has a tracked bug for key. It logs the issue and the caller skips the check.
