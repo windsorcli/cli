@@ -233,6 +233,8 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("stdout: %q\nscript:\n%s", out, script.String())
+			dbgOut, dbgErr, dbgRun := helpers.RunCLI(dir, []string{"env", "--decrypt"}, env)
+			t.Logf("windsor env --decrypt in %s: err=%v\nstdout: %s\nstderr: %s", dir, dbgRun, dbgOut, dbgErr)
 		}
 	})
 	phases := parsePhases(string(out))
