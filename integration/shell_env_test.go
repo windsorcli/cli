@@ -119,7 +119,7 @@ var shellDrivers = []shellDriver{
 		runHook: func() string {
 			return "$hookErrors = @(prompt 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })\nif ($hookErrors) { [Console]::Error.Write('HOOK-ERROR ' + ($hookErrors | Out-String)) }\n"
 		},
-		evalEnv: func(bin string) string { return "& " + sq(bin) + " env --decrypt | Out-String | Invoke-Expression\n" },
+		evalEnv: func(bin string) string { return "Invoke-Expression (@(& " + sq(bin) + " env --decrypt) -join [char]10)\n" },
 		run: func(bin string, args ...string) string {
 			return "& " + sq(bin) + " " + strings.Join(args, " ") + " | Out-Null\n"
 		},
