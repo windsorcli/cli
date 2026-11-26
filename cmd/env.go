@@ -139,7 +139,7 @@ eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 			}
 		} else {
 			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
-				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), false))
+				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), true))
 			}
 		}
 

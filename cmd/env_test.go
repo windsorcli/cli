@@ -921,6 +921,38 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("OutputsExportedEnvVarsWithoutHook", func(t *testing.T) {
+		// Given mocks with env vars and no hook flag
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		exportSeen := false
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			exportSeen = export
+			return "export TEST_VAR='test_value'\n"
+		}
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+				return map[string]string{"TEST_VAR": "test_value"}, nil
+			}
+		}
+		setupTestContext(t, mocks)
+
+		// When executing the command without the hook flag
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
+
+		// Then the command renders exported assignments
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !exportSeen {
+			t.Error("Expected export to be true without --hook")
+		}
+		if !strings.Contains(stdout.String(), "export TEST_VAR") {
+			t.Errorf("Expected stdout to contain export output, got: %s", stdout.String())
+		}
+	})
+
 	t.Run("OutputsAliasesInHookMode", func(t *testing.T) {
 		// Given mocks with aliases and hook mode
 		stdout, stderr := setupOutputCapture(t)
