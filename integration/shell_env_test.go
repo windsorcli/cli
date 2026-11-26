@@ -116,7 +116,9 @@ var shellDrivers = []shellDriver{
 		trailer: "[Console]::Error.Write('PWD=' + $PWD.Path + [Environment]::NewLine + ($Error | Out-String))\n",
 		args:    func(script string) []string { return []string{"-NoProfile", "-File", script} },
 		source:  func(hookFile string) string { return "Invoke-Expression (Get-Content -Raw " + sq(hookFile) + ")\n" },
-		runHook: func() string { return "prompt | Out-Null\n" },
+		runHook: func() string {
+			return "$hookErrors = @(prompt 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })\nif ($hookErrors) { [Console]::Error.Write('HOOK-ERROR ' + ($hookErrors | Out-String)) }\n"
+		},
 		evalEnv: func(bin string) string { return "& " + sq(bin) + " env --decrypt | Out-String | Invoke-Expression\n" },
 		run: func(bin string, args ...string) string {
 			return "& " + sq(bin) + " " + strings.Join(args, " ") + " | Out-Null\n"
@@ -246,6 +248,9 @@ func runShellSession(t *testing.T, d shellDriver, shellPath, mode string) {
 		}
 	})
 	phases := parsePhases(string(out))
+	if mode == "hook" && strings.Contains(stderr.String(), "HOOK-ERROR") {
+		t.Errorf("%s hook printed an error\nstderr: %s", d.name, stderr.String())
+	}
 	var failures []string
 	fail := func(format string, args ...any) {
 		failures = append(failures, fmt.Sprintf(format, args...))
@@ -365,10 +370,9 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // A key is a case variable name, "eval" for the eval path, or "switch" for the unset checks after a context switch.
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
 var knownBugs = map[string]string{
-	"bash:eval":               "https://github.com/windsorcli/cli/issues/3928",
-	"zsh:eval":                "https://github.com/windsorcli/cli/issues/3928",
-	"powershell:CASE_NEWLINE": "https://github.com/windsorcli/cli/issues/3931",
-	"powershell:eval":         "https://github.com/windsorcli/cli/issues/3928",
+	"bash:eval":       "https://github.com/windsorcli/cli/issues/3928",
+	"zsh:eval":        "https://github.com/windsorcli/cli/issues/3928",
+	"powershell:eval": "https://github.com/windsorcli/cli/issues/3928",
 }
 
 // knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.

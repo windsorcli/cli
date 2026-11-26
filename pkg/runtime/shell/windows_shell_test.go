@@ -214,7 +214,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 		// Given a set of environment variables to unset
 		subject, _ := setup(t)
 		envVars := []string{"VAR1", "VAR2", "VAR3"}
-		expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
+		expectedOutput := "Remove-Item Env:VAR1 -ErrorAction SilentlyContinue\nRemove-Item Env:VAR2 -ErrorAction SilentlyContinue\nRemove-Item Env:VAR3 -ErrorAction SilentlyContinue\n"
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {
@@ -257,7 +257,7 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 		// Given a set of aliases to unset
 		subject, _ := setup(t)
 		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
-		expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
+		expectedOutput := "Remove-Item Alias:ALIAS1 -ErrorAction SilentlyContinue\nRemove-Item Alias:ALIAS2 -ErrorAction SilentlyContinue\nRemove-Item Alias:ALIAS3 -ErrorAction SilentlyContinue\n"
 
 		// When capturing the output of UnsetAlias
 		output := captureStdout(t, func() {

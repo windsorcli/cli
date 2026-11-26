@@ -97,3 +97,22 @@ func TestDefaultShell_renderEnvVarsWithExport_PowerShell(t *testing.T) {
 		}
 	})
 }
+
+// TestDefaultShell_renderEnvVarsWithExport_PowerShellUnset tests that an empty value renders a silent removal
+func TestDefaultShell_renderEnvVarsWithExport_PowerShellUnset(t *testing.T) {
+	t.Run("EmptyValueIgnoresAbsentVariable", func(t *testing.T) {
+		// Given a shell and an empty value
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+
+		// When rendering the variables
+		result := shell.renderEnvVarsWithExport(map[string]string{"GONE": ""})
+
+		// Then the removal ignores an absent variable
+		want := "Remove-Item Env:GONE -ErrorAction SilentlyContinue\n"
+		if result != want {
+			t.Errorf("Expected %q, got %q", want, result)
+		}
+	})
+}

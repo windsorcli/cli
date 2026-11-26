@@ -291,3 +291,39 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 	})
 }
+
+func TestShell_InstallHook_PowerShellText(t *testing.T) {
+	t.Run("JoinsLinesWithLineFeed", func(t *testing.T) {
+		// Given a shell that renders the real PowerShell hook template
+		mocks := setupShellMocks(t)
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		mocks.Shims.Executable = func() (string, error) { return "/usr/bin/windsor", nil }
+		mocks.Shims.TemplateParse = func(tmpl *template.Template, text string) (*template.Template, error) {
+			return tmpl.Parse(text)
+		}
+		mocks.Shims.TemplateExecute = func(tmpl *template.Template, wr io.Writer, data any) error {
+			return tmpl.Execute(wr, data)
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When installing the hook
+		err := subject.InstallHook("powershell")
+		w.Close()
+		os.Stdout = oldStdout
+		output, _ := io.ReadAll(r)
+
+		// Then the hook joins output lines with a line feed and does not use Out-String
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if strings.Contains(string(output), "Out-String") {
+			t.Errorf("Expected no Out-String, got: %s", output)
+		}
+		if !strings.Contains(string(output), "-join [char]10") {
+			t.Errorf("Expected a line feed join, got: %s", output)
+		}
+	})
+}
