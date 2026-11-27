@@ -35,7 +35,7 @@ type shellDriver struct {
 	args        func(script string) []string
 	source      func(hookFile string) string
 	runHook     func() string
-	evalEnv     func(bin string) string // nil when the shell has no documented eval path
+	evalEnv     func(bin string) string // nil when the shell has no eval path to test
 	run         func(bin string, args ...string) string
 	print       func(name string) string
 	marker      func(phase string) string
@@ -73,7 +73,6 @@ var shellDrivers = []shellDriver{
 		args:    func(script string) []string { return []string{"--noprofile", "--norc", script} },
 		source:  func(hookFile string) string { return ". " + sq(hookFile) + "\n" },
 		runHook: func() string { return "_windsor_hook\n" },
-		evalEnv: func(bin string) string { return `eval "$(` + sq(bin) + " env --decrypt)\"\n" },
 		run:     posixRun,
 		print:   posixPrint,
 		marker:  func(phase string) string { return "printf '[[%s]]' " + phase + "\n" },
@@ -83,7 +82,6 @@ var shellDrivers = []shellDriver{
 		args:    func(script string) []string { return []string{"-f", script} },
 		source:  func(hookFile string) string { return "source " + sq(hookFile) + "\n" },
 		runHook: func() string { return "_windsor_hook\n" },
-		evalEnv: func(bin string) string { return `eval "$(` + sq(bin) + " env --decrypt)\"\n" },
 		run:     posixRun,
 		print:   posixPrint,
 		marker:  func(phase string) string { return "printf '[[%s]]' " + phase + "\n" },
@@ -118,9 +116,6 @@ var shellDrivers = []shellDriver{
 		source:  func(hookFile string) string { return "Invoke-Expression (Get-Content -Raw " + sq(hookFile) + ")\n" },
 		runHook: func() string {
 			return "$hookErrors = @(prompt 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })\nif ($hookErrors) { [Console]::Error.Write('HOOK-ERROR ' + ($hookErrors | Out-String)) }\n"
-		},
-		evalEnv: func(bin string) string {
-			return "Invoke-Expression (@(& " + sq(bin) + " env --decrypt) -join [char]10)\n"
 		},
 		run: func(bin string, args ...string) string {
 			return "& " + sq(bin) + " " + strings.Join(args, " ") + " | Out-Null\n"
