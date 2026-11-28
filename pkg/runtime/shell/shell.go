@@ -192,7 +192,8 @@ func (s *DefaultShell) fallbackToGlobal(originalDir string) (string, error) {
 
 // renderEnvVarsPlain returns environment variables in plain KEY=value format as a string, sorted by key.
 // If a value is empty, it returns KEY= with no value. Used for non-export output scenarios.
-// Values containing special characters are quoted with single quotes to ensure safe shell evaluation.
+// Values containing special characters are wrapped in single quotes. Backslashes stay as written,
+// because consumers of this format, such as the Windsor GitHub action, strip the outer quotes and do not run a shell.
 func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
@@ -205,11 +206,21 @@ func (s *DefaultShell) renderEnvVarsPlain(envVars map[string]string) string {
 		if envVars[k] == "" {
 			result.WriteString(fmt.Sprintf("%s=\n", k))
 		} else {
-			value := s.quoteValueForShell(envVars[k], false)
+			value := s.quoteValuePlain(envVars[k])
 			result.WriteString(fmt.Sprintf("%s=%s\n", k, value))
 		}
 	}
 	return result.String()
+}
+
+// quoteValuePlain quotes a value for the plain KEY=value format.
+// A value with special characters is wrapped in single quotes, and each single quote inside it is written as '"'"'.
+// Backslashes are not changed, so a Windows path such as D:\a\b stays intact after a consumer strips the outer quotes.
+func (s *DefaultShell) quoteValuePlain(value string) string {
+	if !strings.ContainsAny(value, "[]{}()\"'$`\\ \t\n&|;<>*?~#") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // quoteValueForShell quotes a value appropriately for shell evaluation.

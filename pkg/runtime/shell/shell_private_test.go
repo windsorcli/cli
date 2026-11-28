@@ -240,6 +240,21 @@ func TestDefaultShell_renderEnvVarsPlain(t *testing.T) {
 		}
 	})
 
+	t.Run("KeepsBackslashesInWindowsPaths", func(t *testing.T) {
+		// Given a shell and a Windows path value
+		shell, _ := setup(t)
+		envVars := map[string]string{"ROOT": `D:\a\action\test`}
+
+		// When rendering plain environment variables
+		result := shell.renderEnvVarsPlain(envVars)
+
+		// Then the backslashes stay as written inside the single quotes
+		want := "ROOT='D:\\a\\action\\test'\n"
+		if result != want {
+			t.Errorf("Expected %q, got %q", want, result)
+		}
+	})
+
 	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
 		// Given a shell with environment variables containing special characters
 		shell, _ := setup(t)
