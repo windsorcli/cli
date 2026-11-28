@@ -8,6 +8,8 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
 
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-run-{0}', github.run_id) }}
@@ -18,15 +20,25 @@ permissions:
   issues: read
   pull-requests: read
 
+env:
+  # Must equal MinimumVersionTerraform in pkg/constants/constants.go; the build-and-test job checks it.
+  TERRAFORM_MIN: "1.12.2"
+
 jobs:
   build-and-test:
+    name: build-and-test (${{ matrix.os }}, ${{ matrix.arch }}${{ matrix.terraform == 'latest' && ', terraform latest' || '' }})
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         arch: [amd64, arm64]
+        terraform: [min]
         exclude:
           - os: windows-latest
             arch: arm64
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            terraform: latest
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -55,8 +67,22 @@ jobs:
       - name: Install Terraform (integration tests)
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1 renovate: depName=hashicorp/setup-terraform
         with:
-          terraform_version: "1.12.2" # satisfies CLI min 1.12.2
+          terraform_version: ${{ matrix.terraform == 'min' && env.TERRAFORM_MIN || 'latest' }}
           terraform_wrapper: false
+
+      - name: Print Terraform version
+        shell: bash
+        run: terraform version
+
+      - name: Check the Terraform minimum matches the CLI constant
+        if: matrix.terraform == 'min'
+        shell: bash
+        run: |
+          constant=$(sed -n 's/^const MinimumVersionTerraform = "\(.*\)"$/\1/p' pkg/constants/constants.go)
+          if [ "$constant" != "$TERRAFORM_MIN" ]; then
+            echo "::error::TERRAFORM_MIN ($TERRAFORM_MIN) differs from MinimumVersionTerraform ($constant). Update both together."
+            exit 1
+          fi
 
       - name: Install Docker CLI (macOS)
         if: matrix.os == 'macos-latest'
@@ -112,7 +138,7 @@ jobs:
         run: task test:all
 
       - name: Test Build Windsor CLI on macOS/Linux
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.os != 'windows-latest' && matrix.terraform == 'min' }}
         run: |
           VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
           echo "Testing build for version: $VERSION"
@@ -124,7 +150,7 @@ jobs:
           fi
 
       - name: Test Build Windsor CLI on Windows
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-latest' && matrix.terraform == 'min' }}
         run: |
           $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
           echo "Testing build for version: $env:VERSION"
@@ -135,6 +161,7 @@ jobs:
         shell: pwsh
 
   shell-env:
+    if: github.event_name != 'schedule'
     name: shell-env (${{ matrix.shell }}, ${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -175,6 +202,7 @@ jobs:
         run: go test -tags integration ./integration/ -run TestShellEnv -count=1 -v
 
   sast-scan:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -207,6 +235,7 @@ jobs:
           GOFLAGS: '-buildvcs=false'
 
   format-check:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -227,6 +256,7 @@ jobs:
           fi
 
   docs-check:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
