@@ -1,38 +1,37 @@
 ---
 title: "windsor env"
-description: "Print shell commands to export project env vars."
+description: "Print the project's environment variables."
 ---
 
 ```sh
 windsor env [flags]
 ```
 
-Print shell commands that export the project's environment variables.
-Source the output, or rely on 'windsor hook' to do this automatically when you
-cd into a project.
+Print the project's environment variables as KEY=value lines.
+Secrets show as ******** unless you pass --decrypt.
 
-The variables include AWS, Kubernetes, Docker, Talos, and Terraform credentials
-and config paths derived from the current context.
+The output is for display. To set the variables in your shell, run 'windsor hook'
+or use 'eval' with --hook. To run one command with them, use 'windsor exec'.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--decrypt` | `false` | Decrypt secrets before exporting env vars. |
-| `--hook` | `false` | Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically. |
+| `--decrypt` | `false` | Decrypt secrets before printing env vars. |
+| `--hook` | `false` | Print shell commands that export the variables. Suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically. |
 | `--shell` | `""` | Print setenv commands for the given shell instead of POSIX export commands. Only tcsh is supported. |
 
 ## Examples
 
 ```sh
-# Source env vars manually
-eval "$(windsor env)"
-
-# Same, with secrets decrypted (1Password / SOPS)
-eval "$(windsor env --decrypt)"
-
-# Show what would be exported
+# Show the variables
 windsor env
+
+# Show the variables with secrets decrypted (1Password / SOPS)
+windsor env --decrypt
+
+# Set the variables in the current bash or zsh shell
+eval "$(windsor env --decrypt --hook)"
 
 # tcsh
 eval "`windsor env --shell tcsh`"

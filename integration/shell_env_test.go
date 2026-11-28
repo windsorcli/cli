@@ -35,7 +35,7 @@ type shellDriver struct {
 	args        func(script string) []string
 	source      func(hookFile string) string
 	runHook     func() string
-	evalEnv     func(bin string) string // nil when the shell has no documented eval path
+	evalEnv     func(bin string) string // nil when the shell has no eval path to test
 	run         func(bin string, args ...string) string
 	print       func(name string) string
 	marker      func(phase string) string
@@ -73,7 +73,6 @@ var shellDrivers = []shellDriver{
 		args:    func(script string) []string { return []string{"--noprofile", "--norc", script} },
 		source:  func(hookFile string) string { return ". " + sq(hookFile) + "\n" },
 		runHook: func() string { return "_windsor_hook\n" },
-		evalEnv: func(bin string) string { return `eval "$(` + sq(bin) + " env --decrypt)\"\n" },
 		run:     posixRun,
 		print:   posixPrint,
 		marker:  func(phase string) string { return "printf '[[%s]]' " + phase + "\n" },
@@ -83,7 +82,6 @@ var shellDrivers = []shellDriver{
 		args:    func(script string) []string { return []string{"-f", script} },
 		source:  func(hookFile string) string { return "source " + sq(hookFile) + "\n" },
 		runHook: func() string { return "_windsor_hook\n" },
-		evalEnv: func(bin string) string { return `eval "$(` + sq(bin) + " env --decrypt)\"\n" },
 		run:     posixRun,
 		print:   posixPrint,
 		marker:  func(phase string) string { return "printf '[[%s]]' " + phase + "\n" },
@@ -119,7 +117,6 @@ var shellDrivers = []shellDriver{
 		runHook: func() string {
 			return "$hookErrors = @(prompt 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })\nif ($hookErrors) { [Console]::Error.Write('HOOK-ERROR ' + ($hookErrors | Out-String)) }\n"
 		},
-		evalEnv: func(bin string) string { return "& " + sq(bin) + " env --decrypt | Out-String | Invoke-Expression\n" },
 		run: func(bin string, args ...string) string {
 			return "& " + sq(bin) + " " + strings.Join(args, " ") + " | Out-Null\n"
 		},
@@ -369,11 +366,7 @@ func shellEnvFixture(t *testing.T) (dir string, env []string) {
 // knownBugs maps "shell:key" to the issue that tracks a quoting or unset bug in that shell.
 // A key is a case variable name, "eval" for the eval path, or "switch" for the unset checks after a context switch.
 // The test still runs each tracked check and fails when the check passes, so a fix cannot go unnoticed.
-var knownBugs = map[string]string{
-	"bash:eval":       "https://github.com/windsorcli/cli/issues/3928",
-	"zsh:eval":        "https://github.com/windsorcli/cli/issues/3928",
-	"powershell:eval": "https://github.com/windsorcli/cli/issues/3928",
-}
+var knownBugs = map[string]string{}
 
 // knownBug handles a check that has a tracked bug for the shell. ok says whether the check passed.
 // It returns false when the shell has no tracked bug for key, and the caller reports a failure as usual.

@@ -15,21 +15,20 @@ import (
 
 var envCmd = &cobra.Command{
 	Use:   "env",
-	Short: "Print shell commands to export project env vars.",
-	Long: `Print shell commands that export the project's environment variables.
-Source the output, or rely on 'windsor hook' to do this automatically when you
-cd into a project.
+	Short: "Print the project's environment variables.",
+	Long: `Print the project's environment variables as KEY=value lines.
+Secrets show as ******** unless you pass --decrypt.
 
-The variables include AWS, Kubernetes, Docker, Talos, and Terraform credentials
-and config paths derived from the current context.`,
-	Example: `# Source env vars manually
-eval "$(windsor env)"
-
-# Same, with secrets decrypted (1Password / SOPS)
-eval "$(windsor env --decrypt)"
-
-# Show what would be exported
+The output is for display. To set the variables in your shell, run 'windsor hook'
+or use 'eval' with --hook. To run one command with them, use 'windsor exec'.`,
+	Example: `# Show the variables
 windsor env
+
+# Show the variables with secrets decrypted (1Password / SOPS)
+windsor env --decrypt
+
+# Set the variables in the current bash or zsh shell
+eval "$(windsor env --decrypt --hook)"
 
 # tcsh
 eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
@@ -149,9 +148,9 @@ eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 
 // init registers the env command and its flags with the root command.
 func init() {
-	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before exporting env vars.")
+	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before printing env vars.")
 	envCmd.Flags().String("shell", "", "Print setenv commands for the given shell instead of POSIX export commands. Only tcsh is supported.")
-	envCmd.Flags().Bool("hook", false, "Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")
+	envCmd.Flags().Bool("hook", false, "Print shell commands that export the variables. Suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")
 	rootCmd.AddCommand(envCmd)
 }
 
